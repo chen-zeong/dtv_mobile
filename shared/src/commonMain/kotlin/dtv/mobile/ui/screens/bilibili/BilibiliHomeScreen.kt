@@ -33,6 +33,8 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import dtv.mobile.model.Streamer
+import dtv.mobile.repo.BilibiliCate1
+import dtv.mobile.repo.BilibiliCate2
 import dtv.mobile.repo.BilibiliQrStatus
 import dtv.mobile.repo.PagedResult
 import dtv.mobile.state.AppState
@@ -47,25 +49,17 @@ import kotlinx.coroutines.launch
 
 private const val PAGE_SIZE = 20
 
-private data class BiliArea(val name: String, val parent: Int, val area: Int)
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BilibiliHomeScreen(
   appState: AppState,
   modifier: Modifier = Modifier,
 ) {
-  val areas = remember {
-    listOf(
-      BiliArea("热门", parent = 0, area = 0),
-      BiliArea("英雄联盟", parent = 2, area = 86),
-      BiliArea("王者荣耀", parent = 3, area = 35),
-      BiliArea("虚拟主播", parent = 9, area = 0),
-      BiliArea("颜值", parent = 1, area = 145),
-    )
-  }
+  var categories: List<BilibiliCate1> by remember { mutableStateOf(emptyList()) }
+  var selectedCate1: BilibiliCate1? by remember { mutableStateOf(null) }
+  var selectedCate2: BilibiliCate2? by remember { mutableStateOf(null) }
+  var showCate2Sheet by remember { mutableStateOf(false) }
 
-  var selected by remember { mutableStateOf(areas.first()) }
   var rooms by remember { mutableStateOf<List<Streamer>>(emptyList()) }
   var loading by remember { mutableStateOf(true) }
   var loadingMore by remember { mutableStateOf(false) }
@@ -79,6 +73,7 @@ fun BilibiliHomeScreen(
   val scope = rememberCoroutineScope()
 
   suspend fun loadPage(reset: Boolean) {
+    val cate2 = selectedCate2 ?: return
     if (reset) {
       rooms = emptyList()
       hasMore = true
@@ -88,8 +83,8 @@ fun BilibiliHomeScreen(
     if (reset) loading = true else loadingMore = true
 
     val resp: PagedResult<Streamer> = appState.repo.fetchBilibiliLiveList(
-      parentAreaId = selected.parent,
-      areaId = selected.area,
+      parentAreaId = cate2.parentAreaId,
+      areaId = cate2.areaId,
       page = page,
       pageSize = PAGE_SIZE,
     )
@@ -103,7 +98,17 @@ fun BilibiliHomeScreen(
     loggedIn = !appState.repo.getBilibiliCookie().isNullOrBlank()
   }
 
-  LaunchedEffect(selected.parent, selected.area) {
+  LaunchedEffect(Unit) {
+    loading = true
+    val data = appState.repo.fetchBilibiliCategories()
+    categories = data
+    selectedCate1 = data.firstOrNull()
+    selectedCate2 = selectedCate1?.cate2List?.firstOrNull()
+    loading = false
+  }
+
+  LaunchedEffect(selectedCate2?.parentAreaId, selectedCate2?.areaId) {
+    if (selectedCate2 == null) return@LaunchedEffect
     loadPage(reset = true)
     gridState.scrollToItem(0)
   }
@@ -197,6 +202,27 @@ fun BilibiliHomeScreen(
     }
   }
 
+  if (showCate2Sheet) {
+    ModalBottomSheet(onDismissRequest = { showCate2Sheet = false }) {
+      Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+        Text("选择分区", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 10.dp))
+        selectedCate1?.cate2List.orEmpty().forEach { c2 ->
+          val selected = c2.parentAreaId == selectedCate2?.parentAreaId && c2.areaId == selectedCate2?.areaId
+          TextButton(
+            onClick = {
+              selectedCate2 = c2
+              showCate2Sheet = false
+            },
+            modifier = Modifier.fillMaxWidth(),
+          ) {
+            Text(text = c2.name, color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
+          }
+        }
+        Spacer(modifier = Modifier.height(24.dp))
+      }
+    }
+  }
+
   Column(modifier = modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
       TextButton(onClick = { showLoginSheet = true }) { Text(if (loggedIn) "已登录" else "登录", style = MaterialTheme.typography.titleMedium) }
@@ -207,13 +233,21 @@ fun BilibiliHomeScreen(
 
     Spacer(modifier = Modifier.height(6.dp))
     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-      items(areas, key = { "${it.parent}-${it.area}" }) { a ->
+      items(categories, key = { it.parentAreaId }) { c1 ->
         FilterChip(
-          selected = a == selected,
-          onClick = { selected = a },
-          label = { Text(a.name) },
+          selected = c1.parentAreaId == selectedCate1?.parentAreaId,
+          onClick = {
+            selectedCate1 = c1
+            selectedCate2 = c1.cate2List.firstOrNull()
+          },
+          label = { Text(c1.name) },
         )
       }
+    }
+
+    Spacer(modifier = Modifier.height(6.dp))
+    TextButton(onClick = { if (selectedCate1 != null) showCate2Sheet = true }) {
+      Text(text = selectedCate2?.name ?: "选择分区", style = MaterialTheme.typography.titleMedium)
     }
 
     Spacer(modifier = Modifier.height(10.dp))

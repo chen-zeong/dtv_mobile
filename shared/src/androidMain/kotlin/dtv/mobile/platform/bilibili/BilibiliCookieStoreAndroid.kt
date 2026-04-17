@@ -9,6 +9,17 @@ class BilibiliCookieStoreAndroid(
 
   fun getCookie(): String? = prefs.getString("cookie", null)?.takeIf { it.isNotBlank() }
 
+  fun mergeFromCookieHeader(cookieHeader: String) {
+    if (cookieHeader.isBlank()) return
+    val existing = parseCookieHeader(getCookie().orEmpty())
+    val updated = existing.toMutableMap()
+    parseCookieHeader(cookieHeader).forEach { (k, v) ->
+      if (k.isNotBlank() && v.isNotBlank()) updated[k] = v
+    }
+    val cookie = updated.entries.joinToString("; ") { (k, v) -> "$k=$v" }
+    if (cookie.isNotBlank()) prefs.edit().putString("cookie", cookie).apply()
+  }
+
   fun clear() {
     prefs.edit().remove("cookie").apply()
   }
@@ -40,4 +51,3 @@ class BilibiliCookieStoreAndroid(
       }.toMap()
   }
 }
-

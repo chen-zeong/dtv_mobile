@@ -1,5 +1,6 @@
 package dtv.mobile.repo
 
+import dtv.mobile.model.Platform
 import dtv.mobile.model.Streamer
 import kotlinx.coroutines.flow.Flow
 
@@ -64,6 +65,14 @@ data class BilibiliQrPollResult(
 )
 
 interface DtvRepository {
+  suspend fun searchAnchors(platform: Platform, keyword: String): List<Streamer>
+
+  suspend fun fetchHuyaCategories(): List<HuyaCate1>
+
+  suspend fun fetchBilibiliCategories(): List<BilibiliCate1>
+
+  suspend fun fetchDouyinCategories(): List<DouyinCate1>
+
   suspend fun fetchDouyuCategories(): DouyuCategories
 
   suspend fun fetchDouyuThreeCate(cate2Id: String): List<DouyuCate3>

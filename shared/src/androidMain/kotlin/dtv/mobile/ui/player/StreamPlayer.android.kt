@@ -16,9 +16,9 @@ import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.AspectRatioFrameLayout
+import androidx.media3.ui.PlayerView
 import dtv.mobile.util.AppLog
-import android.view.TextureView
-import android.widget.FrameLayout
+import android.view.View
 
 @Composable
 actual fun StreamPlayer(
@@ -103,10 +103,19 @@ actual fun StreamPlayer(
       }
 
       override fun onVideoSizeChanged(videoSize: VideoSize) {
-        val w = videoSize.width
-        val h = videoSize.height
-        AppLog.i("DTV-Player", "video size url=$url size=${w}x$h")
-        if (w > 0 && h > 0) onVideoAspectRatioChanged(w.toFloat() / h.toFloat()) else onVideoAspectRatioChanged(null)
+        val rawW = videoSize.width
+        val rawH = videoSize.height
+        val rotation = videoSize.unappliedRotationDegrees
+        val pixelRatio = videoSize.pixelWidthHeightRatio
+
+        val (w, h) = if (rotation == 90 || rotation == 270) rawH to rawW else rawW to rawH
+        val aspect = if (w > 0 && h > 0) (w.toFloat() * pixelRatio) / h.toFloat() else null
+
+        AppLog.i(
+          "DTV-Player",
+          "video size url=$url size=${rawW}x${rawH} rotation=$rotation pixelRatio=$pixelRatio aspect=$aspect",
+        )
+        onVideoAspectRatioChanged(aspect)
       }
 
       override fun onRenderedFirstFrame() {
@@ -124,23 +133,41 @@ actual fun StreamPlayer(
   AndroidView(
     modifier = modifier,
     factory = {
-      val container = AspectRatioFrameLayout(it).apply {
+      PlayerView(it).apply {
+        useController = true
+        controllerAutoShow = true
+        setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
         resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+        this.player = player
+
+        applyControls(fullscreen = fullscreen)
       }
-      val textureView = TextureView(it)
-      container.addView(
-        textureView,
-        FrameLayout.LayoutParams(
-          FrameLayout.LayoutParams.MATCH_PARENT,
-          FrameLayout.LayoutParams.MATCH_PARENT,
-        ),
-      )
-      player.setVideoTextureView(textureView)
-      AppLog.i("DTV-Player", "using TextureView for video")
-      container
     },
     update = { view ->
       view.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+      view.useController = true
+      view.controllerAutoShow = true
+      view.player = player
+
+      view.applyControls(fullscreen = fullscreen)
     },
   )
+}
+
+private fun PlayerView.applyControls(fullscreen: Boolean) {
+  // In fullscreen: only keep play/pause. Hide seek/time UI and skip buttons.
+  setShowPreviousButton(!fullscreen)
+  setShowNextButton(!fullscreen)
+  setShowRewindButton(!fullscreen)
+  setShowFastForwardButton(!fullscreen)
+
+  val visibility = if (fullscreen) View.GONE else View.VISIBLE
+
+  findViewById<View?>(androidx.media3.ui.R.id.exo_progress)?.visibility = visibility
+  findViewById<View?>(androidx.media3.ui.R.id.exo_position)?.visibility = visibility
+  findViewById<View?>(androidx.media3.ui.R.id.exo_duration)?.visibility = visibility
+  findViewById<View?>(androidx.media3.ui.R.id.exo_rew)?.visibility = visibility
+  findViewById<View?>(androidx.media3.ui.R.id.exo_ffwd)?.visibility = visibility
+  findViewById<View?>(androidx.media3.ui.R.id.exo_prev)?.visibility = visibility
+  findViewById<View?>(androidx.media3.ui.R.id.exo_next)?.visibility = visibility
 }

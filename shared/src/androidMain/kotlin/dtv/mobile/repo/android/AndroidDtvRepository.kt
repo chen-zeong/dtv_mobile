@@ -9,6 +9,7 @@ import dtv.mobile.platform.bilibili.BilibiliAuthApiAndroid
 import dtv.mobile.platform.bilibili.BilibiliCookieStoreAndroid
 import dtv.mobile.platform.bilibili.BilibiliDanmakuClientAndroid
 import dtv.mobile.platform.bilibili.BilibiliLiveListApiAndroid
+import dtv.mobile.platform.bilibili.BilibiliSearchApiAndroid
 import dtv.mobile.platform.bilibili.BilibiliStreamUrlResolverAndroid
 import dtv.mobile.platform.douyin.DouyinWebApiAndroid
 import dtv.mobile.platform.douyin.DouyinDanmakuClientAndroid
@@ -17,13 +18,19 @@ import dtv.mobile.platform.douyu.DouyuCate3DirectoryApi
 import dtv.mobile.platform.douyu.DouyuCategoriesApi
 import dtv.mobile.platform.douyu.DouyuMobileApi
 import dtv.mobile.platform.douyu.DouyuDanmakuClientAndroid
+import dtv.mobile.platform.douyu.DouyuSearchApiAndroid
 import dtv.mobile.platform.douyu.DouyuThreeCateApi
 import dtv.mobile.platform.douyu.DouyuStreamUrlResolverAndroid
 import dtv.mobile.platform.huya.HuyaDanmakuClientAndroid
 import dtv.mobile.platform.huya.HuyaLiveListApiAndroid
+import dtv.mobile.platform.huya.HuyaSearchApiAndroid
 import dtv.mobile.platform.huya.HuyaStreamUrlResolverAndroid
+import dtv.mobile.repo.BilibiliCate1
+import dtv.mobile.repo.BilibiliCate2
 import dtv.mobile.repo.BilibiliQrCode
 import dtv.mobile.repo.BilibiliQrPollResult
+import dtv.mobile.repo.DouyinCate1
+import dtv.mobile.repo.DouyinCate2
 import dtv.mobile.repo.DouyuCate1
 import dtv.mobile.repo.DouyuCate2
 import dtv.mobile.repo.DouyuCate3
@@ -31,15 +38,26 @@ import dtv.mobile.repo.DouyuCategories
 import dtv.mobile.repo.DouyuPlayInfo
 import dtv.mobile.repo.DtvRepository
 import dtv.mobile.repo.DanmakuMessage
+import dtv.mobile.repo.HuyaCate1
+import dtv.mobile.repo.HuyaCate2
 import dtv.mobile.repo.PagedResult
 import dtv.mobile.repo.fake.FakeDtvRepository
 import dtv.mobile.util.normalizeHttpUrl
 import kotlinx.coroutines.flow.Flow
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.intOrNull
 
 class AndroidDtvRepository(
   private val appContext: Context,
 ) : DtvRepository {
   private val client = createHttpClient()
+  private val json = Json { ignoreUnknownKeys = true; isLenient = true }
 
   private val douyuMobileApi = DouyuMobileApi(client)
   private val douyuCategoriesApi = DouyuCategoriesApi(client)
@@ -48,10 +66,12 @@ class AndroidDtvRepository(
   private val douyuCate3DirectoryApi = DouyuCate3DirectoryApi(client)
   private val douyuStreamResolver = DouyuStreamUrlResolverAndroid(appContext, client)
   private val douyuDanmakuClient = DouyuDanmakuClientAndroid()
+  private val douyuSearchApi = DouyuSearchApiAndroid(client)
 
   private val huyaLiveListApi = HuyaLiveListApiAndroid(client)
   private val huyaStreamResolver = HuyaStreamUrlResolverAndroid(client)
   private val huyaDanmakuClient = HuyaDanmakuClientAndroid()
+  private val huyaSearchApi = HuyaSearchApiAndroid(client)
 
   private val douyinWebApi = DouyinWebApiAndroid(client)
   private val douyinDanmakuClient = DouyinDanmakuClientAndroid(appContext, douyinWebApi)
@@ -60,12 +80,149 @@ class AndroidDtvRepository(
   private val bilibiliAuthApi = BilibiliAuthApiAndroid(client, bilibiliCookieStore)
   private val bilibiliLiveListApi = BilibiliLiveListApiAndroid(client)
   private val bilibiliStreamResolver = BilibiliStreamUrlResolverAndroid(client) { bilibiliCookieStore.getCookie() }
+  private val bilibiliSearchApi = BilibiliSearchApiAndroid(client, bilibiliCookieStore)
   private val bilibiliDanmakuClient = BilibiliDanmakuClientAndroid(
     httpClient = client,
     cookieProvider = { bilibiliCookieStore.getCookie() },
   )
 
   private val fallback = FakeDtvRepository()
+
+  private fun readAssetText(path: String): String {
+    return appContext.assets.open(path).bufferedReader().use { it.readText() }
+  }
+
+  private fun JsonElement?.stringValueOrNull(): String? {
+    val p = this as? kotlinx.serialization.json.JsonPrimitive ?: return null
+    if (p is JsonNull) return null
+    return p.content
+  }
+
+  override suspend fun searchAnchors(platform: Platform, keyword: String): List<Streamer> {
+    val trimmed = keyword.trim()
+    if (trimmed.isEmpty()) return emptyList()
+    return when (platform) {
+      Platform.Douyu -> runCatching { douyuSearchApi.searchAnchors(trimmed) }.getOrElse { emptyList() }
+      Platform.Huya -> runCatching { huyaSearchApi.searchAnchors(trimmed) }.getOrElse { emptyList() }
+      Platform.Bilibili -> runCatching { bilibiliSearchApi.searchRooms(trimmed) }.getOrElse { emptyList() }
+      Platform.Douyin -> runCatching {
+        val info = douyinWebApi.fetchRoomEnter(trimmed)
+        val title = info.title?.trim().orEmpty().ifBlank { "直播中" }
+        val name = info.anchorName?.trim().orEmpty().ifBlank { "抖音主播" }
+        val isLive = info.hlsPullUrlMap.isNotEmpty() || info.flvPullUrlMap.isNotEmpty()
+        listOf(
+          Streamer(
+            platform = Platform.Douyin,
+            roomId = trimmed,
+            name = name,
+            title = title,
+            viewerText = "",
+            avatarUrl = normalizeHttpUrl(info.avatarUrl),
+            coverUrl = null,
+            isLive = isLive,
+          ),
+        )
+      }.getOrElse { emptyList() }
+      else -> emptyList()
+    }
+  }
+
+  override suspend fun fetchHuyaCategories(): List<HuyaCate1> {
+    return runCatching {
+      val text = readAssetText("categories/huya_categories.json")
+      val root = json.parseToJsonElement(text)
+      val arr = root as? JsonArray ?: return emptyList()
+      arr.mapNotNull { c1El ->
+        val obj = c1El.jsonObject
+        val name = obj["title"].stringValueOrNull()?.trim().orEmpty()
+        if (name.isBlank()) return@mapNotNull null
+        val href = obj["href"].stringValueOrNull()
+        val sub = obj["subcategories"]?.jsonArray.orEmpty().mapNotNull { c2El ->
+          val c2Obj = c2El.jsonObject
+          val gid = c2Obj["id"].stringValueOrNull()?.trim().orEmpty()
+          val c2Name = c2Obj["title"].stringValueOrNull()?.trim().orEmpty()
+          if (gid.isBlank() || c2Name.isBlank()) return@mapNotNull null
+          HuyaCate2(
+            gid = gid,
+            name = c2Name,
+            href = c2Obj["href"].stringValueOrNull(),
+          )
+        }
+        HuyaCate1(name = name, href = href, cate2List = sub)
+      }.filter { it.cate2List.isNotEmpty() }
+    }.getOrElse { emptyList() }
+  }
+
+  override suspend fun fetchBilibiliCategories(): List<BilibiliCate1> {
+    return runCatching {
+      val text = readAssetText("categories/bilibili_categories.json")
+      val root = json.parseToJsonElement(text)
+      val arr = root as? JsonArray ?: return emptyList()
+
+      val list = arr.mapNotNull { c1El ->
+        val obj = c1El.jsonObject
+        val parentId = obj["id"]?.jsonPrimitive?.intOrNull ?: obj["id"].stringValueOrNull()?.toIntOrNull() ?: return@mapNotNull null
+        val name = obj["title"].stringValueOrNull()?.trim().orEmpty()
+        if (name.isBlank()) return@mapNotNull null
+        val href = obj["href"].stringValueOrNull()
+        val sub = obj["subcategories"]?.jsonArray.orEmpty().mapNotNull { c2El ->
+          val c2Obj = c2El.jsonObject
+          val areaId = c2Obj["id"].stringValueOrNull()?.toIntOrNull()
+            ?: c2Obj["id"]?.jsonPrimitive?.intOrNull
+            ?: return@mapNotNull null
+          val c2Name = c2Obj["title"].stringValueOrNull()?.trim().orEmpty()
+          if (c2Name.isBlank()) return@mapNotNull null
+          BilibiliCate2(
+            areaId = areaId,
+            parentAreaId = c2Obj["parent_id"].stringValueOrNull()?.toIntOrNull() ?: parentId,
+            name = c2Name,
+            href = c2Obj["href"].stringValueOrNull(),
+          )
+        }
+        BilibiliCate1(parentAreaId = parentId, name = name, href = href, cate2List = sub)
+      }.filter { it.cate2List.isNotEmpty() }
+      list
+    }.getOrElse { emptyList() }
+  }
+
+  override suspend fun fetchDouyinCategories(): List<DouyinCate1> {
+    return runCatching {
+      val text = readAssetText("categories/douyin_categories.json")
+      val root = json.parseToJsonElement(text)
+      val arr = root as? JsonArray ?: return emptyList()
+
+      fun parseHrefToPartition(href: String): Pair<String, String>? {
+        val parts = href.split("_")
+        if (parts.size < 2) return null
+        val partition = parts.last().trim()
+        val partitionType = parts[parts.size - 2].trim()
+        if (partition.isEmpty() || partitionType.isEmpty()) return null
+        if (partition.toLongOrNull() == null || partitionType.toLongOrNull() == null) return null
+        return partition to partitionType
+      }
+
+      arr.mapNotNull { c1El ->
+        val obj = c1El.jsonObject
+        val name = obj["title"].stringValueOrNull()?.trim().orEmpty()
+        if (name.isBlank()) return@mapNotNull null
+        val href = obj["href"].stringValueOrNull()
+        val sub = obj["subcategories"]?.jsonArray.orEmpty().mapNotNull { c2El ->
+          val c2Obj = c2El.jsonObject
+          val c2Name = c2Obj["title"].stringValueOrNull()?.trim().orEmpty()
+          val c2Href = c2Obj["href"].stringValueOrNull()?.trim().orEmpty()
+          if (c2Name.isBlank() || c2Href.isBlank()) return@mapNotNull null
+          val parsed = parseHrefToPartition(c2Href) ?: return@mapNotNull null
+          DouyinCate2(
+            partition = parsed.first,
+            partitionType = parsed.second,
+            name = c2Name,
+            href = c2Href,
+          )
+        }
+        DouyinCate1(name = name, href = href, cate2List = sub)
+      }.filter { it.cate2List.isNotEmpty() }
+    }.getOrElse { emptyList() }
+  }
 
   override suspend fun fetchDouyuCategories(): DouyuCategories {
     return runCatching {

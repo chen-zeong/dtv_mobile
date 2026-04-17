@@ -3,6 +3,7 @@ package dtv.mobile.ui.screens.huya
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -14,9 +15,12 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -27,6 +31,8 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import dtv.mobile.model.Streamer
+import dtv.mobile.repo.HuyaCate1
+import dtv.mobile.repo.HuyaCate2
 import dtv.mobile.repo.PagedResult
 import dtv.mobile.state.AppState
 import dtv.mobile.ui.components.StreamerCard
@@ -37,23 +43,17 @@ import kotlinx.coroutines.flow.map
 
 private const val PAGE_SIZE = 20
 
-private data class HuyaGid(val id: String, val name: String)
-
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HuyaHomeScreen(
   appState: AppState,
   modifier: Modifier = Modifier,
 ) {
-  val gids = remember {
-    listOf(
-      HuyaGid("1", "网游竞技"),
-      HuyaGid("2", "单机热游"),
-      HuyaGid("8", "娱乐天地"),
-      HuyaGid("2168", "一起看"),
-    )
-  }
+  var categories: List<HuyaCate1> by remember { mutableStateOf(emptyList()) }
+  var selectedCate1: HuyaCate1? by remember { mutableStateOf(null) }
+  var selectedCate2: HuyaCate2? by remember { mutableStateOf(null) }
+  var showCate2Sheet by remember { mutableStateOf(false) }
 
-  var selectedGid by remember { mutableStateOf(gids.first().id) }
   var rooms by remember { mutableStateOf<List<Streamer>>(emptyList()) }
   var loading by remember { mutableStateOf(true) }
   var loadingMore by remember { mutableStateOf(false) }
@@ -63,6 +63,7 @@ fun HuyaHomeScreen(
   val gridState = rememberLazyGridState()
 
   suspend fun loadPage(reset: Boolean) {
+    val gid = selectedCate2?.gid ?: return
     if (reset) {
       rooms = emptyList()
       hasMore = true
@@ -71,14 +72,24 @@ fun HuyaHomeScreen(
     if (!hasMore) return
 
     if (reset) loading = true else loadingMore = true
-    val resp: PagedResult<Streamer> = appState.repo.fetchHuyaLiveList(gid = selectedGid, page = page, limit = PAGE_SIZE)
+    val resp: PagedResult<Streamer> = appState.repo.fetchHuyaLiveList(gid = gid, page = page, limit = PAGE_SIZE)
     rooms = if (reset) resp.items else rooms + resp.items
     hasMore = resp.items.size == PAGE_SIZE
     page += 1
     if (reset) loading = false else loadingMore = false
   }
 
-  LaunchedEffect(selectedGid) {
+  LaunchedEffect(Unit) {
+    loading = true
+    val data = appState.repo.fetchHuyaCategories()
+    categories = data
+    selectedCate1 = data.firstOrNull()
+    selectedCate2 = selectedCate1?.cate2List?.firstOrNull()
+    loading = false
+  }
+
+  LaunchedEffect(selectedCate2?.gid) {
+    if (selectedCate2 == null) return@LaunchedEffect
     loadPage(reset = true)
     gridState.scrollToItem(0)
   }
@@ -96,15 +107,44 @@ fun HuyaHomeScreen(
       }
   }
 
+  if (showCate2Sheet) {
+    ModalBottomSheet(onDismissRequest = { showCate2Sheet = false }) {
+      Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+        Text("选择分类", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 10.dp))
+        selectedCate1?.cate2List.orEmpty().forEach { c2 ->
+          val selected = c2.gid == selectedCate2?.gid
+          TextButton(
+            onClick = {
+              selectedCate2 = c2
+              showCate2Sheet = false
+            },
+            modifier = Modifier.fillMaxWidth(),
+          ) {
+            Text(text = c2.name, color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
+          }
+        }
+        Spacer(modifier = Modifier.height(24.dp))
+      }
+    }
+  }
+
   Column(modifier = modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-      items(gids, key = { it.id }) { gid ->
+      items(categories, key = { it.name }) { c1 ->
         FilterChip(
-          selected = gid.id == selectedGid,
-          onClick = { selectedGid = gid.id },
-          label = { Text(gid.name) },
+          selected = c1.name == selectedCate1?.name,
+          onClick = {
+            selectedCate1 = c1
+            selectedCate2 = c1.cate2List.firstOrNull()
+          },
+          label = { Text(c1.name) },
         )
       }
+    }
+
+    Spacer(modifier = Modifier.height(6.dp))
+    TextButton(onClick = { if (selectedCate1 != null) showCate2Sheet = true }) {
+      Text(text = selectedCate2?.name ?: "选择分类", style = MaterialTheme.typography.titleMedium)
     }
     Spacer(modifier = Modifier.height(10.dp))
 

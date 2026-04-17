@@ -17,6 +17,8 @@ class AppState(
   var selectedPlatform: Platform by mutableStateOf(Platform.Douyu)
   var currentScreen: Screen by mutableStateOf(Screen.Home)
   var currentStreamer: Streamer? by mutableStateOf(null)
+  private var previousScreen: Screen? by mutableStateOf(null)
+  var playerFullscreen: Boolean by mutableStateOf(false)
 
   fun toggleTheme() {
     themeMode = when (themeMode) {
@@ -28,20 +30,37 @@ class AppState(
 
   fun selectPlatform(platform: Platform) {
     selectedPlatform = platform
+    if (currentScreen == Screen.Home || currentScreen == Screen.Search) {
+      // keep current screen for better UX when switching tabs during search
+      return
+    }
     currentScreen = Screen.Home
   }
 
   fun openPlayer(streamer: Streamer) {
+    previousScreen = currentScreen
     currentStreamer = streamer
     currentScreen = Screen.Player
+    playerFullscreen = false
+  }
+
+  fun openSearch() {
+    previousScreen = null
+    currentScreen = Screen.Search
   }
 
   fun back() {
     when (currentScreen) {
       Screen.Home -> Unit
       Screen.Player -> {
-        currentScreen = Screen.Home
+        currentScreen = previousScreen ?: Screen.Home
+        previousScreen = null
         currentStreamer = null
+        playerFullscreen = false
+      }
+      Screen.Search -> {
+        previousScreen = null
+        currentScreen = Screen.Home
       }
     }
   }
@@ -49,7 +68,7 @@ class AppState(
 
 enum class ThemeMode { System, Light, Dark }
 
-enum class Screen { Home, Player }
+enum class Screen { Home, Player, Search }
 
 @Composable
 fun rememberAppState(repo: DtvRepository = FakeDtvRepository()): AppState {

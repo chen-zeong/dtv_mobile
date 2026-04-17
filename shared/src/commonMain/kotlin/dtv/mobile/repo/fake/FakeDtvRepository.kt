@@ -19,6 +19,47 @@ import kotlinx.coroutines.flow.emptyFlow
 import kotlin.random.Random
 
 class FakeDtvRepository : DtvRepository {
+  override suspend fun searchAnchors(platform: Platform, keyword: String): List<Streamer> {
+    if (keyword.isBlank()) return emptyList()
+    return fakeRooms(platform = platform, start = 0, count = 12).map { it.copy(title = "搜索：${it.title}") }
+  }
+
+  override suspend fun fetchHuyaCategories(): List<dtv.mobile.repo.HuyaCate1> {
+    return listOf(
+      dtv.mobile.repo.HuyaCate1(
+        name = "网游竞技",
+        cate2List = listOf(
+          dtv.mobile.repo.HuyaCate2(gid = "1", name = "英雄联盟"),
+          dtv.mobile.repo.HuyaCate2(gid = "862", name = "CS2"),
+        ),
+      ),
+    )
+  }
+
+  override suspend fun fetchBilibiliCategories(): List<dtv.mobile.repo.BilibiliCate1> {
+    return listOf(
+      dtv.mobile.repo.BilibiliCate1(
+        parentAreaId = 2,
+        name = "网游",
+        cate2List = listOf(
+          dtv.mobile.repo.BilibiliCate2(areaId = 86, parentAreaId = 2, name = "英雄联盟"),
+        ),
+      ),
+    )
+  }
+
+  override suspend fun fetchDouyinCategories(): List<dtv.mobile.repo.DouyinCate1> {
+    return listOf(
+      dtv.mobile.repo.DouyinCate1(
+        name = "竞技游戏",
+        cate2List = listOf(
+          dtv.mobile.repo.DouyinCate2(partition = "1010014", partitionType = "1", name = "英雄联盟"),
+          dtv.mobile.repo.DouyinCate2(partition = "1010045", partitionType = "1", name = "王者荣耀"),
+        ),
+      ),
+    )
+  }
+
   override suspend fun fetchDouyuCategories(): DouyuCategories {
     val cate1 = DouyuCate1(
       id = "1",
