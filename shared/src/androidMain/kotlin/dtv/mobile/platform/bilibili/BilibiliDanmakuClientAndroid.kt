@@ -30,6 +30,9 @@ import java.util.concurrent.atomic.AtomicReference
 import java.util.zip.Inflater
 import java.security.MessageDigest
 import kotlin.math.min
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.isActive
+import java.util.concurrent.atomic.AtomicBoolean
 
 class BilibiliDanmakuClientAndroid(
   private val httpClient: HttpClient,
@@ -55,6 +58,10 @@ class BilibiliDanmakuClientAndroid(
   private data class DanmuInfo(
     val roomId: Int,
     val token: String,
+    val endpoints: List<Endpoint>,
+  )
+
+  private data class Endpoint(
     val host: String,
     val wssPort: Int,
   )
@@ -175,16 +182,21 @@ class BilibiliDanmakuClientAndroid(
     val realRoomId = data["roomid"]?.jsonPrimitive?.content?.toIntOrNull() ?: roomId.toIntOrNull() ?: 0
 
     val hostList = data["host_list"]?.jsonArray ?: JsonArray(emptyList())
-    val preferred = hostList
-      .asSequence()
-      .mapNotNull { it.jsonObject }
-      .firstOrNull { it["wss_port"]?.jsonPrimitive?.content?.toIntOrNull() == 443 }
-      ?: hostList.firstOrNull()?.jsonObject
-    val host = preferred?.get("host")?.jsonPrimitive?.content?.trim().orEmpty().ifBlank { "broadcastlv.chat.bilibili.com" }
-    val wssPort = preferred?.get("wss_port")?.jsonPrimitive?.content?.toIntOrNull() ?: 443
+    val endpoints =
+      hostList.asSequence()
+        .mapNotNull { it.jsonObject }
+        .mapNotNull { obj ->
+          val host = obj["host"]?.jsonPrimitive?.content?.trim().orEmpty()
+          val port = obj["wss_port"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0
+          if (host.isBlank() || port <= 0) null else Endpoint(host = host, wssPort = port)
+        }
+        .distinctBy { "${it.host}:${it.wssPort}" }
+        .sortedWith(compareBy<Endpoint>({ if (it.wssPort == 443) 0 else 1 }, { it.host }))
+        .toList()
     if (token.isBlank()) error("B站弹幕 token 为空")
 
-    return DanmuInfo(roomId = realRoomId, token = token, host = host, wssPort = wssPort)
+    val resolvedEndpoints = endpoints.ifEmpty { listOf(Endpoint(host = "broadcastlv.chat.bilibili.com", wssPort = 443)) }
+    return DanmuInfo(roomId = realRoomId, token = token, endpoints = resolvedEndpoints)
   }
 
   private fun buildPacket(op: Int, body: ByteArray = ByteArray(0), ver: Int = 1, seq: Int = 1): ByteArray {
@@ -254,76 +266,111 @@ class BilibiliDanmakuClientAndroid(
         .getOrNull()
         ?: return@launch
 
-      val wsUrl = if (info.wssPort == 443) "wss://${info.host}/sub" else "wss://${info.host}:${info.wssPort}/sub"
-      AppLog.i("DTV-Bilibili", "danmaku ws url=$wsUrl roomId=$roomId(real=${info.roomId})")
       val authJson =
         // protover=1 requests plain JSON (avoid zlib/brotli differences across regions).
         """{"uid":0,"roomid":${info.roomId},"protover":1,"platform":"web","type":2,"key":"${info.token}"}""".encodeToByteArray()
       val authPacket = buildPacket(op = 7, body = authJson, ver = 1, seq = 1)
       val heartbeatPacket = buildPacket(op = 2, body = ByteArray(0), ver = 1, seq = 1)
 
-      val req = Request.Builder()
-        .url(wsUrl)
-        .addHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
-        .addHeader("Referer", "https://live.bilibili.com/")
-        .build()
+      var backoffMs = 1_200L
+      while (isActive) {
+        var connectedOnce = false
+        var sessionHadAuthOk = false
 
-      val listener = object : WebSocketListener() {
-        var msgCount = 0
+        for (ep in info.endpoints) {
+          if (!isActive) break
+          val wsUrl = if (ep.wssPort == 443) "wss://${ep.host}/sub" else "wss://${ep.host}:${ep.wssPort}/sub"
+          AppLog.i("DTV-Bilibili", "danmaku ws connecting url=$wsUrl roomId=$roomId(real=${info.roomId})")
 
-        override fun onOpen(webSocket: WebSocket, response: Response) {
-          socketRef.set(webSocket)
-          AppLog.i("DTV-Bilibili", "danmaku ws opened roomId=$roomId")
-          webSocket.send(ByteString.of(*authPacket))
-        }
+          val sessionClosed = CompletableDeferred<Throwable?>()
+          val authOk = AtomicBoolean(false)
 
-        override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
-          val raw = bytes.toByteArray()
-          for (p in parsePackets(raw)) {
-            when (p.op) {
-              8 -> {
-                AppLog.i("DTV-Bilibili", "danmaku auth ok roomId=$roomId ver=${p.ver} bodyLen=${p.body.size}")
-              }
-              5 -> {
-                msgCount++
-                if (msgCount == 1 || msgCount % 50 == 0) {
-                  AppLog.i("DTV-Bilibili", "danmaku messages received roomId=$roomId count=$msgCount ver=${p.ver} bodyLen=${p.body.size}")
-                }
-                if (p.ver == 2) {
-                  val inflated = runCatching { inflateZlib(p.body) }.getOrNull() ?: continue
-                  for (inner in parsePackets(inflated)) {
-                    if (inner.op != 5) continue
-                    val msg = decodeChatMessageOrNull(inner.body) ?: continue
-                    trySend(msg.copy(roomId = roomId))
+          val req = Request.Builder()
+            .url(wsUrl)
+            .addHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
+            .addHeader("Referer", "https://live.bilibili.com/")
+            .addHeader("Origin", "https://live.bilibili.com")
+            .build()
+
+          val listener = object : WebSocketListener() {
+            var msgCount = 0
+
+            override fun onOpen(webSocket: WebSocket, response: Response) {
+              socketRef.set(webSocket)
+              connectedOnce = true
+              AppLog.i("DTV-Bilibili", "danmaku ws opened roomId=$roomId url=$wsUrl")
+              webSocket.send(ByteString.of(*authPacket))
+            }
+
+            override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
+              val raw = bytes.toByteArray()
+              for (p in parsePackets(raw)) {
+                when (p.op) {
+                  8 -> {
+                    authOk.set(true)
+                    sessionHadAuthOk = true
+                    AppLog.i("DTV-Bilibili", "danmaku auth ok roomId=$roomId ver=${p.ver} bodyLen=${p.body.size}")
                   }
-                } else {
-                  val msg = decodeChatMessageOrNull(p.body) ?: continue
-                  trySend(msg.copy(roomId = roomId))
+                  5 -> {
+                    msgCount++
+                    if (msgCount == 1 || msgCount % 50 == 0) {
+                      AppLog.i("DTV-Bilibili", "danmaku messages received roomId=$roomId count=$msgCount ver=${p.ver} bodyLen=${p.body.size}")
+                    }
+                    if (p.ver == 2) {
+                      val inflated = runCatching { inflateZlib(p.body) }.getOrNull() ?: continue
+                      for (inner in parsePackets(inflated)) {
+                        if (inner.op != 5) continue
+                        val msg = decodeChatMessageOrNull(inner.body) ?: continue
+                        trySend(msg.copy(roomId = roomId))
+                      }
+                    } else {
+                      val msg = decodeChatMessageOrNull(p.body) ?: continue
+                      trySend(msg.copy(roomId = roomId))
+                    }
+                  }
                 }
               }
             }
+
+            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+              AppLog.e("DTV-Bilibili", "bilibili danmaku ws failure roomId=$roomId url=$wsUrl", t)
+              sessionClosed.complete(t)
+            }
+
+            override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+              AppLog.w("DTV-Bilibili", "danmaku ws closed roomId=$roomId url=$wsUrl code=$code reason=$reason")
+              sessionClosed.complete(null)
+            }
+          }
+
+          val socket = okHttp.newWebSocket(req, listener)
+          socketRef.set(socket)
+
+          val heartbeatJob = launch(Dispatchers.IO) {
+            while (isActive) {
+              delay(30_000)
+              val s = socketRef.get() ?: break
+              if (s != socket) break
+              val ok = s.send(ByteString.of(*heartbeatPacket))
+              if (!ok) break
+            }
+          }
+
+          sessionClosed.await()
+          heartbeatJob.cancel()
+          runCatching { socket.close(1000, "reconnect") }
+
+          if (authOk.get()) {
+            // This endpoint worked. Break endpoint loop and reconnect with backoff when needed.
+            break
           }
         }
 
-        override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-          AppLog.e("DTV-Bilibili", "bilibili danmaku ws failure roomId=$roomId", t)
-          // Do not propagate to the UI collector: danmaku failures should not crash the app.
-          close()
-        }
-
-        override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-          close()
-        }
-      }
-
-      val socket = okHttp.newWebSocket(req, listener)
-      socketRef.set(socket)
-
-      while (true) {
-        delay(30_000)
-        val s = socketRef.get() ?: break
-        val ok = s.send(ByteString.of(*heartbeatPacket))
-        if (!ok) break
+        // If we never connected at all, expand backoff a bit; otherwise keep it small.
+        backoffMs = if (!connectedOnce) (backoffMs * 2).coerceAtMost(12_000L) else 1_600L
+        if (!isActive) break
+        // If we had a successful session before, wait a bit before reconnecting.
+        delay(backoffMs)
       }
     }
 
