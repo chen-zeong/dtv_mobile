@@ -20,7 +20,18 @@ fun DtvBackground(content: @Composable () -> Unit) {
 
   Box(modifier = Modifier.fillMaxSize()) {
     Canvas(modifier = Modifier.fillMaxSize()) {
-      drawRect(color = bg)
+      // Layered gradients for a richer background without being too noisy.
+      drawRect(
+        brush = Brush.linearGradient(
+          colors = listOf(
+            bg,
+            accent.copy(alpha = if (isDark) 0.05f else 0.04f),
+            bg,
+          ),
+          start = Offset(0f, 0f),
+          end = Offset(size.width, size.height),
+        ),
+      )
       drawMesh(
         topLeft = Offset(0f, 0f),
         bottomRight = Offset(size.width, size.height),
@@ -42,8 +53,9 @@ private fun DrawScope.drawMesh(
   val h = bottomRight.y - topLeft.y
 
   // Two subtle radial "mesh" blobs inspired by `--page-mesh` in the desktop CSS.
-  val a1 = if (isDark) accent.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.06f)
-  val a2 = if (isDark) Color.Black.copy(alpha = 0.30f) else Color.Black.copy(alpha = 0.04f)
+  val a1 = if (isDark) accent.copy(alpha = 0.10f) else accent.copy(alpha = 0.06f)
+  val a2 = if (isDark) Color.Black.copy(alpha = 0.30f) else Color.Black.copy(alpha = 0.05f)
+  val a3 = if (isDark) accent.copy(alpha = 0.06f) else Color.Black.copy(alpha = 0.03f)
 
   fun blob(center: Offset, radius: Float, color: Color) {
     drawCircle(
@@ -57,6 +69,7 @@ private fun DrawScope.drawMesh(
     )
   }
 
-  blob(center = Offset(w * 0.12f, h * 0.10f), radius = w * 0.58f, color = a1)
-  blob(center = Offset(w * 0.92f, h * 0.92f), radius = w * 0.62f, color = a2)
+  blob(center = Offset(w * 0.12f, h * 0.10f), radius = w * 0.62f, color = a1)
+  blob(center = Offset(w * 0.86f, h * 0.18f), radius = w * 0.46f, color = a3)
+  blob(center = Offset(w * 0.92f, h * 0.92f), radius = w * 0.66f, color = a2)
 }

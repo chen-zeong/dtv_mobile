@@ -3,6 +3,7 @@ package dtv.mobile.ui.screens
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -68,6 +69,7 @@ import dtv.mobile.model.Streamer
 import dtv.mobile.repo.DanmakuMessage
 import dtv.mobile.repo.DouyuPlayInfo
 import dtv.mobile.state.AppState
+import dtv.mobile.ui.components.DtvBackground
 import dtv.mobile.ui.components.NetworkImage
 import dtv.mobile.ui.player.StreamPlayer
 import dtv.mobile.ui.system.FullscreenEffect
@@ -307,116 +309,122 @@ fun PlayerScreen(
   val isVerticalVideo = videoAspectForDanmaku < 1f
   val isHorizontalVideo = !isVerticalVideo
 
-  Column(
-    modifier = Modifier
-      .fillMaxSize()
-      .then(if (fullscreen) Modifier.background(Color.Black) else Modifier)
-      .then(modifier),
-  ) {
-    if (!fullscreen) {
-      PlayerHeader(
-        streamer = streamer,
-        onBack = appState::back,
-        followed = streamer?.let(appState::isFollowed) == true,
-        onToggleFollow = { s -> appState.toggleFollow(s) },
-        modifier = Modifier.fillMaxWidth(),
-      )
-    }
-
-    val videoSurfaceShape = RoundedCornerShape(0.dp)
-    val videoSurfaceColor = Color.Black
-    val videoSurfaceModifier = if (fullscreen) {
-      Modifier.fillMaxSize()
-    } else {
-      Modifier.fillMaxWidth().aspectRatio(layoutAspect)
-    }
-
-    Surface(shape = videoSurfaceShape, color = videoSurfaceColor, modifier = videoSurfaceModifier) {
-      Box(modifier = Modifier.fillMaxSize()) {
-        if (url != null) {
-          StreamPlayer(
-            url = url!!,
-            fullscreen = fullscreen,
-            liveMode = true,
-            onVideoAspectRatioChanged = { videoAspectRatio = it },
-            onError = {
-              if (it.startsWith("__retry_http__:")) {
-                error = null
-                url = it.removePrefix("__retry_http__:")
-              } else {
-                error = it
-                url = null
-              }
-            },
-            modifier = Modifier.fillMaxSize(),
-          )
-        } else {
-          Column(
-            modifier = Modifier
-              .fillMaxSize()
-              .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-          ) {
-            Text(
-              text = when {
-                streamer == null -> "未选择直播间"
-                loading -> "正在获取播放地址…"
-                error != null -> error!!
-                else -> "准备播放…"
-              },
-              style = MaterialTheme.typography.titleMedium,
-              color = if (fullscreen) Color.White.copy(alpha = 0.9f) else MaterialTheme.colorScheme.onSecondary.copy(alpha = 0.85f),
-            )
-          }
-        }
-
-        val overlayDanmaku = danmakuEnabled && danmakuMessages.isNotEmpty() && (fullscreen || isVerticalVideo)
-        if (overlayDanmaku) {
-          if (fullscreen && isHorizontalVideo) {
-            ScrollingDanmakuOverlay(
-              resetKey = streamer?.roomId,
-              messages = danmakuMessages,
-              showUser = false,
-              areaFraction = danmakuAreaFraction,
-              modifier = Modifier
-                .fillMaxSize()
-                .padding(10.dp),
-            )
-          } else {
-            DanmakuOverlay(
-              messages = danmakuMessages,
-              showUser = !fullscreen,
-              areaFraction = danmakuAreaFraction,
-              transparentBackground = false,
-              modifier = Modifier
-                .fillMaxSize()
-                .padding(10.dp),
-            )
-          }
-        }
-
-        PlayerSideControlsOverlay(
-          fullscreen = fullscreen,
-          onToggleFullscreen = { fullscreen = !fullscreen },
-          onOpenSettings = { showSettings = true },
-          onReload = { reloadUrl() },
-          modifier = Modifier
-            .align(Alignment.CenterEnd)
-            .padding(end = 16.dp),
-        )
-
-      }
-    }
-
-    if (!fullscreen) {
-      if (danmakuEnabled && danmakuMessages.isNotEmpty() && isHorizontalVideo) {
-        HubDanmakuPanel(
-          messages = danmakuMessages,
+  val content: @Composable () -> Unit = {
+    Column(
+      modifier = Modifier
+        .fillMaxSize()
+        .then(if (fullscreen) Modifier.background(Color.Black) else Modifier)
+        .then(modifier),
+    ) {
+      if (!fullscreen) {
+        PlayerHeader(
+          streamer = streamer,
+          onBack = appState::back,
+          followed = streamer?.let(appState::isFollowed) == true,
+          onToggleFollow = { s -> appState.toggleFollow(s) },
           modifier = Modifier.fillMaxWidth(),
         )
       }
+
+      val videoSurfaceShape = RoundedCornerShape(0.dp)
+      val videoSurfaceColor = Color.Black
+      val videoSurfaceModifier = if (fullscreen) {
+        Modifier.fillMaxSize()
+      } else {
+        Modifier.fillMaxWidth().aspectRatio(layoutAspect)
+      }
+
+      Surface(shape = videoSurfaceShape, color = videoSurfaceColor, modifier = videoSurfaceModifier) {
+        Box(modifier = Modifier.fillMaxSize()) {
+          if (url != null) {
+            StreamPlayer(
+              url = url!!,
+              fullscreen = fullscreen,
+              liveMode = true,
+              onVideoAspectRatioChanged = { videoAspectRatio = it },
+              onError = {
+                if (it.startsWith("__retry_http__:")) {
+                  error = null
+                  url = it.removePrefix("__retry_http__:")
+                } else {
+                  error = it
+                  url = null
+                }
+              },
+              modifier = Modifier.fillMaxSize(),
+            )
+          } else {
+            Column(
+              modifier = Modifier
+                .fillMaxSize()
+                .padding(16.dp),
+              verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+              Text(
+                text = when {
+                  streamer == null -> "未选择直播间"
+                  loading -> "正在获取播放地址…"
+                  error != null -> error!!
+                  else -> "准备播放…"
+                },
+                style = MaterialTheme.typography.titleMedium,
+                color = if (fullscreen) Color.White.copy(alpha = 0.9f) else MaterialTheme.colorScheme.onSecondary.copy(alpha = 0.85f),
+              )
+            }
+          }
+
+          val overlayDanmaku = danmakuEnabled && danmakuMessages.isNotEmpty() && (fullscreen || isVerticalVideo)
+          if (overlayDanmaku) {
+            if (fullscreen && isHorizontalVideo) {
+              ScrollingDanmakuOverlay(
+                resetKey = streamer?.roomId,
+                messages = danmakuMessages,
+                showUser = false,
+                areaFraction = danmakuAreaFraction,
+                modifier = Modifier
+                  .fillMaxSize()
+                  .padding(10.dp),
+              )
+            } else {
+              DanmakuOverlay(
+                messages = danmakuMessages,
+                showUser = !fullscreen,
+                areaFraction = danmakuAreaFraction,
+                transparentBackground = false,
+                modifier = Modifier
+                  .fillMaxSize()
+                  .padding(10.dp),
+              )
+            }
+          }
+
+          PlayerSideControlsOverlay(
+            fullscreen = fullscreen,
+            onToggleFullscreen = { fullscreen = !fullscreen },
+            onOpenSettings = { showSettings = true },
+            onReload = { reloadUrl() },
+            modifier = Modifier
+              .align(Alignment.CenterEnd)
+              .padding(end = 16.dp),
+          )
+
+        }
+      }
+
+      if (!fullscreen) {
+        if (danmakuEnabled && danmakuMessages.isNotEmpty() && isHorizontalVideo) {
+          HubDanmakuPanel(
+            messages = danmakuMessages,
+            modifier = Modifier
+              .fillMaxWidth()
+              .padding(start = 12.dp, end = 12.dp, top = 12.dp),
+          )
+        }
+      }
     }
-}
+  }
+
+  if (fullscreen) content() else DtvBackground(content = content)
 }
 
 @Composable
@@ -444,7 +452,7 @@ private fun PlayerHeader(
     Column(
       modifier = Modifier
         .statusBarsPadding()
-        .padding(horizontal = 12.dp, vertical = 4.dp),
+        .padding(vertical = 10.dp),
       verticalArrangement = Arrangement.spacedBy(0.dp),
     ) {
       Row(
@@ -454,20 +462,34 @@ private fun PlayerHeader(
       ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
           val avatar = normalizeHttpUrl(streamer?.avatarUrl)
-          Box(
-            modifier = Modifier
-              .size(44.dp)
-              .clip(CircleShape)
-              .background(if (isDark) Color.White.copy(alpha = 0.08f) else MaterialTheme.colorScheme.background),
-            contentAlignment = Alignment.Center,
-          ) {
-            if (avatar != null) {
-              NetworkImage(url = avatar, contentDescription = streamer?.name, modifier = Modifier.matchParentSize())
-            } else {
-              Text(
-                text = streamer?.name?.take(1).orEmpty(),
-                color = headerFg.copy(alpha = 0.9f),
-                style = MaterialTheme.typography.titleSmall,
+          Box(modifier = Modifier.size(44.dp)) {
+            Box(
+              modifier = Modifier
+                .matchParentSize()
+                .clip(CircleShape)
+                .background(if (isDark) Color.White.copy(alpha = 0.08f) else MaterialTheme.colorScheme.background),
+              contentAlignment = Alignment.Center,
+            ) {
+              if (avatar != null) {
+                NetworkImage(url = avatar, contentDescription = streamer?.name, modifier = Modifier.matchParentSize())
+              } else {
+                Text(
+                  text = streamer?.name?.take(1).orEmpty(),
+                  color = headerFg.copy(alpha = 0.9f),
+                  style = MaterialTheme.typography.titleSmall,
+                )
+              }
+            }
+
+            if (streamer != null) {
+              Box(
+                modifier = Modifier
+                  .align(Alignment.BottomEnd)
+                  .offset(x = 1.dp, y = 1.dp)
+                  .size(14.dp)
+                  .clip(CircleShape)
+                  .background(liveDot)
+                  .border(width = 2.dp, color = headerBg, shape = CircleShape),
               )
             }
           }
@@ -487,20 +509,10 @@ private fun PlayerHeader(
               maxLines = 1,
               overflow = TextOverflow.Ellipsis,
             )
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-              Box(modifier = Modifier.size(6.dp).clip(CircleShape).background(liveDot))
-              Text(
-                text = streamer?.platform?.title.orEmpty(),
-                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                color = mutedFg,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-              )
-            }
           }
 
           if (streamer != null) {
-            val iconTint = if (followed) MaterialTheme.colorScheme.primary else mutedFg
+            val iconTint = if (followed) Color(0xFFE11D48) else mutedFg
             IconButton(onClick = { onToggleFollow(streamer) }) {
               Icon(
                 imageVector = if (followed) Icons.Default.Favorite else Icons.Default.FavoriteBorder,

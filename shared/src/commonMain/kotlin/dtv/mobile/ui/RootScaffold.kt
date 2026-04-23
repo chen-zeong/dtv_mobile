@@ -194,17 +194,13 @@ private fun HubTopBar(
       }
 
       if (showThemeToggle) {
-        FilterChip(
-          selected = isDark,
-          onClick = onThemeToggle,
-          label = {
-            Icon(
-              imageVector = if (isDark) Icons.Default.LightMode else Icons.Default.DarkMode,
-              contentDescription = "日夜模式",
-              modifier = Modifier.padding(vertical = 2.dp),
-            )
-          },
-        )
+        IconButton(onClick = onThemeToggle) {
+          Icon(
+            imageVector = if (isDark) Icons.Default.LightMode else Icons.Default.DarkMode,
+            contentDescription = "日夜模式",
+            tint = if (isDark) Color(0xFF22C55E) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
+          )
+        }
       } else {
         FilterChip(
           selected = simpleMode,

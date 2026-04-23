@@ -5,7 +5,6 @@ fun normalizeHttpUrl(raw: String?): String? {
   if (value.isEmpty()) return null
   return when {
     value.startsWith("//") -> "https:$value"
-    value.startsWith("http://") -> "https://${value.removePrefix("http://")}"
     else -> value
   }
 }

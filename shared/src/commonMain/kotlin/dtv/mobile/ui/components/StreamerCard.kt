@@ -120,25 +120,6 @@ fun StreamerCard(
             ),
         )
 
-        Surface(
-          modifier = Modifier
-            .align(Alignment.TopStart)
-            .padding(10.dp),
-          shape = RoundedCornerShape(999.dp),
-          color = if (streamer.isLive) Color(0xFFE11D48) else Color.Black.copy(alpha = 0.35f),
-          border = BorderStroke(1.dp, Color.White.copy(alpha = 0.12f)),
-          tonalElevation = 0.dp,
-          shadowElevation = 0.dp,
-        ) {
-          Text(
-            text = if (streamer.isLive) "直播中" else "未开播",
-            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Black),
-            color = Color.White.copy(alpha = 0.95f),
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
-            maxLines = 1,
-          )
-        }
-
         if (streamer.viewerText.isNotBlank()) {
           Surface(
             modifier = Modifier
@@ -163,21 +144,6 @@ fun StreamerCard(
                 overflow = TextOverflow.Ellipsis,
               )
             }
-          }
-        }
-
-        if (onToggleFollow != null) {
-          IconButton(
-            onClick = onToggleFollow,
-            modifier = Modifier
-              .align(Alignment.BottomEnd)
-              .padding(6.dp),
-          ) {
-            Icon(
-              imageVector = if (followed) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-              contentDescription = if (followed) "取消关注" else "关注",
-              tint = if (followed) Color(0xFFF472B6) else Color.White.copy(alpha = 0.90f),
-            )
           }
         }
       }

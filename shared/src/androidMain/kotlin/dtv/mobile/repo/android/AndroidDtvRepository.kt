@@ -236,8 +236,19 @@ class AndroidDtvRepository(
 
     val title = roomObj["room_name"].stringValueOrNull()?.trim()?.ifBlank { null }
     val name = roomObj["nickname"].stringValueOrNull()?.trim()?.ifBlank { null }
-    val avatar = normalizeHttpUrl(roomObj["avatar_mid"].stringValueOrNull() ?: roomObj["avatar"].stringValueOrNull())
-    val cover = normalizeHttpUrl(roomObj["room_src"].stringValueOrNull() ?: roomObj["roomSrc"].stringValueOrNull())
+    val avatar = normalizeHttpUrl(
+      roomObj["avatar_mid"].stringValueOrNull()
+        ?: roomObj["avatarMid"].stringValueOrNull()
+        ?: roomObj["avatar"].stringValueOrNull(),
+    )
+    val cover = normalizeHttpUrl(
+      roomObj["room_src"].stringValueOrNull()
+        ?: roomObj["roomSrc"].stringValueOrNull()
+        ?: roomObj["room_pic"].stringValueOrNull()
+        ?: roomObj["roomPic"].stringValueOrNull()
+        ?: roomObj["room_thumb"].stringValueOrNull()
+        ?: roomObj["roomThumb"].stringValueOrNull(),
+    )
 
     val showStatus = roomObj["show_status"]?.jsonPrimitive?.intOrNull
     val videoLoop = roomObj["videoLoop"]?.jsonPrimitive?.intOrNull
@@ -254,7 +265,12 @@ class AndroidDtvRepository(
     }
     val isLive = liveStatus ?: runCatching { douyuStreamResolver.isLive(roomId) }.getOrNull()
 
-    val online = roomObj["iol"]?.jsonPrimitive?.longOrNull?.toString()
+    val online = (
+      roomObj["iol"].stringValueOrNull()
+        ?: roomObj["ol"].stringValueOrNull()
+        ?: roomObj["online"].stringValueOrNull()
+        ?: roomObj["hn"].stringValueOrNull()
+    )?.trim()?.ifBlank { null }
     return FollowInfo(
       name = name,
       title = title,

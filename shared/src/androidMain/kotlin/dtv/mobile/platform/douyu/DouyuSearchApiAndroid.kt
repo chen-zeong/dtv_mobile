@@ -125,7 +125,11 @@ class DouyuSearchApiAndroid(
       val isLive = anchorObj["isLive"].longValueOrNull() ?: anchorObj["is_live"].longValueOrNull()
       val isLoop = anchorObj["isLoop"].longValueOrNull() ?: anchorObj["is_loop"].longValueOrNull()
       val videoLoop = anchorObj["videoLoop"].longValueOrNull() ?: anchorObj["video_loop"].longValueOrNull()
-      val liveStatus = (isLive == 2L) && (isLoop != 1L) && (videoLoop != 1L)
+      val liveStatus = when (isLive) {
+        1L -> true
+        2L -> false
+        else -> (isLoop != 1L) && (videoLoop != 1L)
+      }
 
       Streamer(
         platform = Platform.Douyu,
