@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -140,9 +141,17 @@ fun DouyinHomeScreen(
 
   if (showCate2Sheet) {
     ModalBottomSheet(onDismissRequest = { showCate2Sheet = false }) {
-      Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-        Text("选择分类", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 10.dp))
-        selectedCate1?.cate2List.orEmpty().forEach { c2 ->
+      val list = selectedCate1?.cate2List.orEmpty()
+      LazyColumn(
+        modifier = Modifier
+          .fillMaxWidth()
+          .padding(horizontal = 16.dp, vertical = 8.dp),
+        contentPadding = PaddingValues(bottom = 24.dp),
+      ) {
+        item {
+          Text("选择分类", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 10.dp))
+        }
+        items(list, key = { "${it.partitionType}:${it.partition}" }) { c2 ->
           val selected = c2.partition == selectedCate2?.partition && c2.partitionType == selectedCate2?.partitionType
           TextButton(
             onClick = {
@@ -154,7 +163,6 @@ fun DouyinHomeScreen(
             Text(text = c2.name, color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
           }
         }
-        Spacer(modifier = Modifier.height(24.dp))
       }
     }
   }

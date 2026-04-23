@@ -61,10 +61,6 @@ fun HomeScreen(
   var refreshing by remember { mutableStateOf(false) }
   val scope = rememberCoroutineScope()
 
-  LaunchedEffect(items.size) {
-    appState.refreshFollowedStreamerCards()
-  }
-
   if (items.isEmpty()) {
     Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
       Text(

@@ -24,6 +24,7 @@ import dtv.mobile.model.Platform
 import dtv.mobile.model.Streamer
 import dtv.mobile.state.AppState
 import dtv.mobile.ui.components.StreamerCard
+import dtv.mobile.ui.components.StreamerCardStyle
 import kotlinx.coroutines.delay
 
 @Composable
@@ -117,6 +118,7 @@ fun SearchScreen(
             followed = appState.isFollowed(s),
             onClick = { appState.openPlayer(s) },
             onToggleFollow = { appState.toggleFollow(s) },
+            style = StreamerCardStyle.Search,
           )
         }
       }

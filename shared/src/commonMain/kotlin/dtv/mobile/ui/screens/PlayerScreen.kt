@@ -88,6 +88,8 @@ import androidx.compose.foundation.layout.offset
 import kotlin.math.roundToInt
 import androidx.compose.runtime.snapshotFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -205,24 +207,31 @@ fun PlayerScreen(
     }
   }
 
-  if (showSettings && streamer != null && streamer.platform == Platform.Douyu) {
+  if (showSettings && streamer != null) {
     ModalBottomSheet(onDismissRequest = { showSettings = false }) {
-      Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+      Column(
+        modifier = Modifier
+          .padding(horizontal = 16.dp, vertical = 10.dp)
+          .verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+      ) {
         Text("播放设置", style = MaterialTheme.typography.titleMedium)
 
-        Text("清晰度", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f))
-        RowWrap(
-          items = listOf("自动" to null) + (playInfo?.variants.orEmpty().map { it.name to it.name }),
-          selected = selectedQuality,
-          onSelect = { selectedQuality = it },
-        )
+        if (streamer.platform == Platform.Douyu) {
+          Text("清晰度", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f))
+          RowWrap(
+            items = listOf("自动" to null) + (playInfo?.variants.orEmpty().map { it.name to it.name }),
+            selected = selectedQuality,
+            onSelect = { selectedQuality = it },
+          )
 
-        Text("线路", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f))
-        RowWrap(
-          items = listOf("自动" to null) + (playInfo?.cdns.orEmpty().map { it to it }),
-          selected = selectedCdn,
-          onSelect = { selectedCdn = it },
-        )
+          Text("线路", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f))
+          RowWrap(
+            items = listOf("自动" to null) + (playInfo?.cdns.orEmpty().map { it to it }),
+            selected = selectedCdn,
+            onSelect = { selectedCdn = it },
+          )
+        }
 
         Text("弹幕", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f))
         RowWrap(
@@ -231,7 +240,7 @@ fun PlayerScreen(
           onSelect = { danmakuEnabled = it == "on" },
         )
 
-        TextButton(onClick = { showSettings = false; reloadUrl() }, modifier = Modifier.fillMaxWidth()) { Text("应用并重载") }
+        TextButton(onClick = { showSettings = false; reloadUrl() }, modifier = Modifier.fillMaxWidth()) { Text("重载") }
         SpacerLine()
       }
     }
@@ -272,6 +281,7 @@ fun PlayerScreen(
           StreamPlayer(
             url = url!!,
             fullscreen = fullscreen,
+            liveMode = true,
             onVideoAspectRatioChanged = { videoAspectRatio = it },
             onError = {
               if (it.startsWith("__retry_http__:")) {
@@ -326,15 +336,17 @@ fun PlayerScreen(
           }
         }
 
-        PlayerControlsOverlay(
+        PlayerControlBar(
           streamer = streamer,
           fullscreen = fullscreen,
           onToggleFullscreen = { fullscreen = !fullscreen },
           onOpenSettings = { showSettings = true },
           onReload = { reloadUrl() },
+          danmakuEnabled = danmakuEnabled,
+          onToggleDanmaku = { danmakuEnabled = !danmakuEnabled },
           modifier = Modifier
-            .align(Alignment.CenterEnd)
-            .padding(end = 16.dp),
+            .align(Alignment.BottomCenter)
+            .padding(horizontal = 16.dp, vertical = 14.dp),
         )
 
       }
@@ -466,47 +478,69 @@ private fun PlayerHeader(
 }
 
 @Composable
-private fun PlayerControlsOverlay(
+private fun PlayerControlBar(
   streamer: Streamer?,
   fullscreen: Boolean,
+  danmakuEnabled: Boolean,
   onToggleFullscreen: () -> Unit,
   onOpenSettings: () -> Unit,
   onReload: () -> Unit,
+  onToggleDanmaku: () -> Unit,
   modifier: Modifier = Modifier,
 ) {
-  Column(
-    modifier = modifier,
-    verticalArrangement = Arrangement.spacedBy(14.dp),
-    horizontalAlignment = Alignment.CenterHorizontally,
-  ) {
-    ControlFab(icon = Icons.Default.FullscreenExit.takeIf { fullscreen } ?: Icons.Default.Fullscreen, onClick = onToggleFullscreen)
-    if (streamer?.platform == Platform.Douyu) {
-      ControlFab(icon = Icons.Default.Settings, onClick = onOpenSettings)
-    }
-    ControlFab(icon = Icons.Default.Refresh, onClick = onReload)
-  }
-}
+  val bg = Color.Black.copy(alpha = 0.36f)
+  val border = Color.White.copy(alpha = 0.12f)
 
-@Composable
-private fun ControlFab(
-  icon: androidx.compose.ui.graphics.vector.ImageVector,
-  onClick: () -> Unit,
-  modifier: Modifier = Modifier,
-) {
   Surface(
-    modifier = modifier.size(48.dp).clip(CircleShape).clickable(onClick = onClick),
-    shape = CircleShape,
-    color = Color.White.copy(alpha = 0.10f),
-    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.12f)),
+    modifier = modifier,
+    shape = RoundedCornerShape(999.dp),
+    color = bg,
+    border = BorderStroke(1.dp, border),
     tonalElevation = 0.dp,
     shadowElevation = 0.dp,
   ) {
-    Box(contentAlignment = Alignment.Center) {
-      Icon(
-        imageVector = icon,
-        contentDescription = null,
-        tint = Color.White.copy(alpha = 0.92f),
+    Row(
+      modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+      verticalAlignment = Alignment.CenterVertically,
+      horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+      Text(
+        text = streamer?.platform?.title.orEmpty(),
+        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Black),
+        color = Color.White.copy(alpha = 0.88f),
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
       )
+
+      Surface(
+        shape = RoundedCornerShape(999.dp),
+        color = if (danmakuEnabled) Color.White.copy(alpha = 0.12f) else Color.Transparent,
+        border = BorderStroke(1.dp, Color.White.copy(alpha = if (danmakuEnabled) 0.14f else 0.10f)),
+        tonalElevation = 0.dp,
+        shadowElevation = 0.dp,
+        modifier = Modifier.clickable(onClick = onToggleDanmaku),
+      ) {
+        Text(
+          text = if (danmakuEnabled) "弹幕开" else "弹幕关",
+          style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+          color = Color.White.copy(alpha = 0.92f),
+          modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+        )
+      }
+
+      IconButton(onClick = onOpenSettings) {
+        Icon(imageVector = Icons.Default.Settings, contentDescription = "设置", tint = Color.White.copy(alpha = 0.92f))
+      }
+      IconButton(onClick = onReload) {
+        Icon(imageVector = Icons.Default.Refresh, contentDescription = "重载", tint = Color.White.copy(alpha = 0.92f))
+      }
+      IconButton(onClick = onToggleFullscreen) {
+        Icon(
+          imageVector = Icons.Default.FullscreenExit.takeIf { fullscreen } ?: Icons.Default.Fullscreen,
+          contentDescription = if (fullscreen) "退出全屏" else "全屏",
+          tint = Color.White.copy(alpha = 0.92f),
+        )
+      }
     }
   }
 }
