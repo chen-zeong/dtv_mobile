@@ -28,3 +28,7 @@ dtv*.log
 **/*.apk
 **/*.aab
 **/*.hprof
+
+# Local-only assets / scratch
+/images/
+/livestream-hub (1)/

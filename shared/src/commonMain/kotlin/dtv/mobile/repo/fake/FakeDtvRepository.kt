@@ -24,6 +24,14 @@ class FakeDtvRepository : DtvRepository {
     return fakeRooms(platform = platform, start = 0, count = 12).map { it.copy(title = "搜索：${it.title}") }
   }
 
+  override suspend fun fetchLiveStatus(streamer: Streamer): Boolean? {
+    return streamer.isLive
+  }
+
+  override suspend fun fetchFollowedStreamerSnapshot(streamer: Streamer): Streamer? {
+    return streamer
+  }
+
   override suspend fun fetchHuyaCategories(): List<dtv.mobile.repo.HuyaCate1> {
     return listOf(
       dtv.mobile.repo.HuyaCate1(

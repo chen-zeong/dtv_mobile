@@ -67,6 +67,20 @@ data class BilibiliQrPollResult(
 interface DtvRepository {
   suspend fun searchAnchors(platform: Platform, keyword: String): List<Streamer>
 
+  /**
+   * Fetch live status for an existing streamer.
+   *
+   * Returns null when the platform doesn't support querying or the request fails.
+   */
+  suspend fun fetchLiveStatus(streamer: Streamer): Boolean?
+
+  /**
+   * Refresh a followed streamer card snapshot (avatar/nickname/title/viewers/live).
+   *
+   * Returns null when the platform doesn't support querying or the request fails.
+   */
+  suspend fun fetchFollowedStreamerSnapshot(streamer: Streamer): Streamer?
+
   suspend fun fetchHuyaCategories(): List<HuyaCate1>
 
   suspend fun fetchBilibiliCategories(): List<BilibiliCate1>

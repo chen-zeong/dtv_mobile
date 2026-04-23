@@ -30,5 +30,14 @@ class SubscriptionStoreAndroid(
     val raw = json.encodeToString(ListSerializer(SubscribedPartition.serializer()), items)
     prefs.edit().putString("subscribed_partitions", raw).apply()
   }
-}
 
+  override fun loadSimpleModeByPlatform(): List<SimpleModeEntry> {
+    val raw = prefs.getString("simple_mode_by_platform", null)?.takeIf { it.isNotBlank() } ?: return emptyList()
+    return runCatching { json.decodeFromString(ListSerializer(SimpleModeEntry.serializer()), raw) }.getOrElse { emptyList() }
+  }
+
+  override fun saveSimpleModeByPlatform(items: List<SimpleModeEntry>) {
+    val raw = json.encodeToString(ListSerializer(SimpleModeEntry.serializer()), items)
+    prefs.edit().putString("simple_mode_by_platform", raw).apply()
+  }
+}

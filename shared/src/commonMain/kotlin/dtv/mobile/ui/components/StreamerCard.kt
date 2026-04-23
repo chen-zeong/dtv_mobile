@@ -13,12 +13,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.FavoriteBorder
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -32,6 +26,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dtv.mobile.model.Streamer
+import dtv.mobile.util.formatViewerCountWanIfNeeded
 import dtv.mobile.util.normalizeHttpUrl
 
 @Composable
@@ -41,13 +36,21 @@ fun StreamerCard(
   modifier: Modifier = Modifier,
   followed: Boolean = false,
   onToggleFollow: (() -> Unit)? = null,
+  highlightLiveBorder: Boolean = false,
 ) {
-  val shape = RoundedCornerShape(32.dp)
+  val shape = RoundedCornerShape(18.dp)
+  val coverRatio = 16f / 10f
   val cover = normalizeHttpUrl(streamer.coverUrl) ?: normalizeHttpUrl(streamer.avatarUrl)
   val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+  val liveBorder = highlightLiveBorder && streamer.isLive
 
   val cardColor = if (isDark) Color(0xFF1A1A1A) else MaterialTheme.colorScheme.surface
-  val borderColor = if (isDark) Color.White.copy(alpha = 0.10f) else MaterialTheme.colorScheme.outline.copy(alpha = 0.22f)
+  val borderColor = when {
+    liveBorder -> MaterialTheme.colorScheme.primary
+    isDark -> Color.White.copy(alpha = 0.10f)
+    else -> MaterialTheme.colorScheme.outline.copy(alpha = 0.22f)
+  }
+  val borderWidth = if (liveBorder) 2.dp else 1.dp
 
   Surface(
     modifier = modifier
@@ -58,20 +61,20 @@ fun StreamerCard(
     color = cardColor,
     tonalElevation = 0.dp,
     shadowElevation = if (isDark) 0.dp else 2.dp,
-    border = androidx.compose.foundation.BorderStroke(1.dp, borderColor),
+    border = androidx.compose.foundation.BorderStroke(borderWidth, borderColor),
   ) {
     Column {
       Box(
         modifier = Modifier
           .fillMaxWidth()
-          .aspectRatio(4f / 3f)
+          .aspectRatio(coverRatio)
           .background(MaterialTheme.colorScheme.secondary),
       ) {
         if (cover != null) {
           NetworkImage(
             url = cover,
             contentDescription = streamer.title,
-            modifier = Modifier.fillMaxWidth().aspectRatio(4f / 3f),
+            modifier = Modifier.fillMaxWidth().aspectRatio(coverRatio),
           )
         } else {
           Text(
@@ -95,27 +98,21 @@ fun StreamerCard(
         if (streamer.viewerText.isNotBlank()) {
           Surface(
             modifier = Modifier
-              .align(Alignment.TopStart)
-              .padding(12.dp),
-            shape = RoundedCornerShape(12.dp),
+              .align(Alignment.TopEnd)
+              .padding(10.dp),
+            shape = RoundedCornerShape(10.dp),
             color = Color.Black.copy(alpha = 0.40f),
             border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.12f)),
             tonalElevation = 0.dp,
             shadowElevation = 0.dp,
           ) {
             Row(
-              modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+              modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
               verticalAlignment = Alignment.CenterVertically,
               horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-              Icon(
-                imageVector = Icons.Default.PlayArrow,
-                contentDescription = "播放",
-                tint = Color.White.copy(alpha = 0.92f),
-                modifier = Modifier.size(14.dp),
-              )
               Text(
-                text = streamer.viewerText,
+                text = formatViewerCountWanIfNeeded(streamer.viewerText),
                 style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Black),
                 color = Color.White,
                 maxLines = 1,
@@ -124,32 +121,12 @@ fun StreamerCard(
             }
           }
         }
-
-        if (onToggleFollow != null) {
-          Surface(
-            modifier = Modifier
-              .align(Alignment.TopEnd)
-              .padding(10.dp),
-            shape = CircleShape,
-            color = Color.Black.copy(alpha = 0.40f),
-            border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.12f)),
-            tonalElevation = 0.dp,
-            shadowElevation = 0.dp,
-          ) {
-            IconButton(onClick = onToggleFollow, modifier = Modifier.size(40.dp)) {
-              val icon = if (followed) Icons.Default.Favorite else Icons.Default.FavoriteBorder
-              Icon(
-                imageVector = icon,
-                contentDescription = if (followed) "已关注" else "关注",
-                tint = if (followed) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.90f),
-                modifier = Modifier.size(18.dp),
-              )
-            }
-          }
-        }
       }
 
-      Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+      Column(
+        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+      ) {
         Text(
           text = streamer.title,
           style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Black),
@@ -162,7 +139,7 @@ fun StreamerCard(
           val avatar = normalizeHttpUrl(streamer.avatarUrl)
           Box(
             modifier = Modifier
-              .size(20.dp)
+              .size(18.dp)
               .clip(CircleShape)
               .background(if (isDark) Color.White.copy(alpha = 0.10f) else MaterialTheme.colorScheme.secondary),
             contentAlignment = Alignment.Center,

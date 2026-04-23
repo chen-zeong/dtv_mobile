@@ -44,6 +44,9 @@ import dtv.mobile.repo.PagedResult
 import dtv.mobile.repo.fake.FakeDtvRepository
 import dtv.mobile.util.formatViewerCountWanIfNeeded
 import dtv.mobile.util.normalizeHttpUrl
+import io.ktor.client.request.get
+import io.ktor.client.request.headers
+import io.ktor.client.statement.bodyAsText
 import kotlinx.coroutines.flow.Flow
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -53,6 +56,7 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.longOrNull
 
 class AndroidDtvRepository(
   private val appContext: Context,
@@ -126,6 +130,220 @@ class AndroidDtvRepository(
       }.getOrElse { emptyList() }
       else -> emptyList()
     }
+  }
+
+  override suspend fun fetchLiveStatus(streamer: Streamer): Boolean? {
+    return when (streamer.platform) {
+      Platform.Douyu -> runCatching { douyuStreamResolver.isLive(streamer.roomId) }.getOrNull()
+      Platform.Huya -> runCatching { huyaStreamResolver.isLive(streamer.roomId) }.getOrNull()
+      Platform.Douyin -> runCatching {
+        val info = douyinWebApi.fetchRoomEnter(streamer.roomId)
+        info.hlsPullUrlMap.isNotEmpty() || info.flvPullUrlMap.isNotEmpty()
+      }.getOrNull()
+      Platform.Bilibili -> runCatching { fetchBilibiliLiveStatus(streamer.roomId) }.getOrNull()
+      else -> null
+    }
+  }
+
+  override suspend fun fetchFollowedStreamerSnapshot(streamer: Streamer): Streamer? {
+    val roomId = streamer.roomId.trim()
+    if (roomId.isBlank()) return null
+
+    return when (streamer.platform) {
+      Platform.Douyu -> runCatching {
+        val info = fetchDouyuFollowInfo(roomId)
+        streamer.copy(
+          name = info.name ?: streamer.name,
+          title = info.title ?: streamer.title,
+          viewerText = info.viewerText ?: streamer.viewerText,
+          avatarUrl = info.avatarUrl ?: streamer.avatarUrl,
+          coverUrl = info.coverUrl ?: streamer.coverUrl,
+          isLive = info.isLive ?: streamer.isLive,
+        )
+      }.getOrNull()
+
+      Platform.Huya -> runCatching {
+        val info = fetchHuyaFollowInfo(roomId)
+        streamer.copy(
+          name = info.name ?: streamer.name,
+          title = info.title ?: streamer.title,
+          viewerText = info.viewerText ?: streamer.viewerText,
+          avatarUrl = info.avatarUrl ?: streamer.avatarUrl,
+          coverUrl = info.coverUrl ?: streamer.coverUrl,
+          isLive = info.isLive ?: streamer.isLive,
+        )
+      }.getOrNull()
+
+      Platform.Bilibili -> runCatching {
+        val info = fetchBilibiliFollowInfo(roomId)
+        streamer.copy(
+          name = info.name ?: streamer.name,
+          title = info.title ?: streamer.title,
+          viewerText = info.viewerText ?: streamer.viewerText,
+          avatarUrl = info.avatarUrl ?: streamer.avatarUrl,
+          coverUrl = info.coverUrl ?: streamer.coverUrl,
+          isLive = info.isLive ?: streamer.isLive,
+        )
+      }.getOrNull()
+
+      Platform.Douyin -> runCatching {
+        val info = douyinWebApi.fetchRoomEnter(roomId)
+        val isLive = (info.hlsPullUrlMap.isNotEmpty() || info.flvPullUrlMap.isNotEmpty())
+        streamer.copy(
+          name = info.anchorName?.trim()?.ifBlank { null } ?: streamer.name,
+          title = info.title?.trim()?.ifBlank { null } ?: streamer.title,
+          viewerText = info.viewerCountStr?.trim()?.ifBlank { null } ?: streamer.viewerText,
+          avatarUrl = normalizeHttpUrl(info.avatarUrl) ?: streamer.avatarUrl,
+          coverUrl = normalizeHttpUrl(info.coverUrl) ?: streamer.coverUrl,
+          isLive = isLive,
+        )
+      }.getOrNull()
+
+      else -> null
+    }
+  }
+
+  private data class FollowInfo(
+    val name: String?,
+    val title: String?,
+    val viewerText: String?,
+    val avatarUrl: String?,
+    val coverUrl: String?,
+    val isLive: Boolean?,
+  )
+
+  private suspend fun fetchDouyuFollowInfo(roomId: String): FollowInfo {
+    val url = "https://www.douyu.com/betard/$roomId"
+    val text = client.get(url) {
+      headers {
+        append("Accept", "application/json, text/plain, */*")
+        append("Accept-Language", "zh-CN,zh;q=0.9")
+        append("Cache-Control", "no-cache")
+        append("Pragma", "no-cache")
+        append("Referer", "https://www.douyu.com/$roomId")
+        append(
+          "User-Agent",
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        )
+      }
+    }.bodyAsText()
+
+    val root = json.parseToJsonElement(text).jsonObject
+    val roomObj = (root["data"]?.jsonObject?.get("room")?.jsonObject)
+      ?: (root["room"]?.jsonObject)
+      ?: (root["data"]?.jsonObject)
+      ?: root
+
+    val title = roomObj["room_name"].stringValueOrNull()?.trim()?.ifBlank { null }
+    val name = roomObj["nickname"].stringValueOrNull()?.trim()?.ifBlank { null }
+    val avatar = normalizeHttpUrl(roomObj["avatar_mid"].stringValueOrNull() ?: roomObj["avatar"].stringValueOrNull())
+    val cover = normalizeHttpUrl(roomObj["room_src"].stringValueOrNull() ?: roomObj["roomSrc"].stringValueOrNull())
+
+    val showStatus = roomObj["show_status"]?.jsonPrimitive?.intOrNull
+    val videoLoop = roomObj["videoLoop"]?.jsonPrimitive?.intOrNull
+    val liveStatus: Boolean? = if (showStatus == 1) {
+      when (videoLoop) {
+        0 -> true
+        1 -> false
+        else -> null
+      }
+    } else if (showStatus == 2 || showStatus == 0) {
+      false
+    } else {
+      null
+    }
+    val isLive = liveStatus ?: runCatching { douyuStreamResolver.isLive(roomId) }.getOrNull()
+
+    val online = roomObj["iol"]?.jsonPrimitive?.longOrNull?.toString()
+    return FollowInfo(
+      name = name,
+      title = title,
+      viewerText = online?.takeIf { it.isNotBlank() },
+      avatarUrl = avatar,
+      coverUrl = cover,
+      isLive = isLive,
+    )
+  }
+
+  private suspend fun fetchHuyaFollowInfo(roomId: String): FollowInfo {
+    val url = "https://mp.huya.com/cache.php?m=Live&do=profileRoom&roomid=$roomId"
+    val text = client.get(url) {
+      headers { append("User-Agent", "Mozilla/5.0") }
+    }.bodyAsText()
+
+    val root = json.parseToJsonElement(text).jsonObject
+    val data = root["data"]?.jsonObject ?: return FollowInfo(null, null, null, null, null, null)
+
+    val profile = data["profileInfo"]?.jsonObject
+    val liveData = data["liveData"]?.jsonObject
+
+    val name = profile?.get("nick").stringValueOrNull()?.trim()?.ifBlank { null }
+    val avatar = normalizeHttpUrl(profile?.get("avatar180").stringValueOrNull() ?: liveData?.get("avatar180").stringValueOrNull())
+    val title = liveData?.get("introduction").stringValueOrNull()?.trim()?.ifBlank { null }
+    val cover = normalizeHttpUrl(liveData?.get("screenshot").stringValueOrNull() ?: liveData?.get("sScreenshot").stringValueOrNull())
+
+    val liveStatus = data["liveStatus"].stringValueOrNull()?.trim()?.uppercase()
+    val isLive = when (liveStatus) {
+      "ON" -> true
+      "OFF" -> false
+      else -> runCatching { huyaStreamResolver.isLive(roomId) }.getOrNull()
+    }
+
+    val totalCount = liveData?.get("totalCount")?.jsonPrimitive?.longOrNull?.toString()
+    return FollowInfo(
+      name = name,
+      title = title,
+      viewerText = totalCount?.takeIf { it.isNotBlank() },
+      avatarUrl = avatar,
+      coverUrl = cover,
+      isLive = isLive,
+    )
+  }
+
+  private suspend fun fetchBilibiliFollowInfo(roomId: String): FollowInfo {
+    val url = "https://api.live.bilibili.com/xlive/web-room/v1/index/getH5InfoByRoom?room_id=$roomId"
+    val text = client.get(url) {
+      headers {
+        append("User-Agent", "Mozilla/5.0")
+        append("Referer", "https://live.bilibili.com/")
+      }
+    }.bodyAsText()
+
+    val root = json.parseToJsonElement(text).jsonObject
+    val data = root["data"]?.jsonObject ?: return FollowInfo(null, null, null, null, null, null)
+    val roomInfo = data["room_info"]?.jsonObject
+    val anchorBase = data["anchor_info"]?.jsonObject?.get("base_info")?.jsonObject
+
+    val title = roomInfo?.get("title").stringValueOrNull()?.trim()?.ifBlank { null }
+    val name = anchorBase?.get("uname").stringValueOrNull()?.trim()?.ifBlank { null }
+    val avatar = normalizeHttpUrl(anchorBase?.get("face").stringValueOrNull())
+    val cover = normalizeHttpUrl(
+      roomInfo?.get("keyframe").stringValueOrNull()
+        ?: roomInfo?.get("cover").stringValueOrNull()
+        ?: roomInfo?.get("user_cover").stringValueOrNull(),
+    )
+
+    val liveStatus = roomInfo?.get("live_status")?.jsonPrimitive?.intOrNull
+    val isLive = liveStatus?.let { it == 1 }
+    val online = roomInfo?.get("online")?.jsonPrimitive?.longOrNull?.toString()
+
+    return FollowInfo(
+      name = name,
+      title = title,
+      viewerText = online?.takeIf { it.isNotBlank() },
+      avatarUrl = avatar,
+      coverUrl = cover,
+      isLive = isLive,
+    )
+  }
+
+  private suspend fun fetchBilibiliLiveStatus(roomId: String): Boolean {
+    val url = "https://api.live.bilibili.com/room/v1/Room/get_info?room_id=$roomId"
+    val text = client.get(url).bodyAsText()
+    val obj = json.parseToJsonElement(text).jsonObject
+    val data = obj["data"]?.jsonObject ?: return false
+    val status = data["live_status"]?.jsonPrimitive?.intOrNull ?: 0
+    return status == 1
   }
 
   override suspend fun fetchHuyaCategories(): List<HuyaCate1> {

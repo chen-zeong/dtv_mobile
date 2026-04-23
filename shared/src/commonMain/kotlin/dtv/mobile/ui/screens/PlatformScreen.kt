@@ -17,6 +17,16 @@ fun PlatformScreen(
   appState: AppState,
   modifier: Modifier = Modifier,
 ) {
+  val subscribedForPlatform = appState.subscribedPartitions.filter { it.platform == appState.selectedPlatform }
+  if (appState.simpleModeForSelectedPlatform && subscribedForPlatform.isNotEmpty()) {
+    SimpleModePlatformScreen(
+      appState = appState,
+      partitions = subscribedForPlatform,
+      modifier = modifier.fillMaxSize(),
+    )
+    return
+  }
+
   when (appState.selectedPlatform) {
     Platform.Douyu -> DouyuHomeScreen(appState = appState, modifier = modifier.fillMaxSize())
     Platform.Huya -> HuyaHomeScreen(appState = appState, modifier = modifier.fillMaxSize())
@@ -29,4 +39,3 @@ fun PlatformScreen(
     )
   }
 }
-

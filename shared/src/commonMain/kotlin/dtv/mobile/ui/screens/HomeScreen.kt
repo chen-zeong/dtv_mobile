@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items as lazyItems
@@ -25,12 +26,19 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -40,7 +48,9 @@ import androidx.compose.ui.unit.sp
 import dtv.mobile.state.AppState
 import dtv.mobile.ui.components.HomeStreamerCard
 import dtv.mobile.ui.components.NetworkImage
+import dtv.mobile.ui.components.PullToRefreshBox
 import dtv.mobile.util.normalizeHttpUrl
+import kotlinx.coroutines.launch
 
 @Composable
 fun HomeScreen(
@@ -48,6 +58,12 @@ fun HomeScreen(
   modifier: Modifier = Modifier,
 ) {
   val items = appState.followedStreamers
+  var refreshing by remember { mutableStateOf(false) }
+  val scope = rememberCoroutineScope()
+
+  LaunchedEffect(items.size) {
+    appState.refreshFollowedStreamerCards()
+  }
 
   if (items.isEmpty()) {
     Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -60,36 +76,50 @@ fun HomeScreen(
     return
   }
 
-  LazyVerticalGrid(
+  PullToRefreshBox(
+    refreshing = refreshing,
+    onRefresh = {
+      if (refreshing) return@PullToRefreshBox
+      scope.launch {
+        refreshing = true
+        runCatching { appState.refreshFollowedStreamerCards() }
+        refreshing = false
+      }
+    },
     modifier = modifier.fillMaxSize(),
-    columns = GridCells.Fixed(2),
-    contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 18.dp, bottom = 92.dp),
-    horizontalArrangement = Arrangement.spacedBy(16.dp),
-    verticalArrangement = Arrangement.spacedBy(28.dp),
   ) {
-    item(span = { GridItemSpan(2) }) {
-      LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.fillMaxWidth()) {
-        lazyItems(items, key = { "${it.platform}-${it.roomId}" }) { streamer ->
-          HomeAvatarItem(
-            nickname = streamer.name,
-            avatarUrl = streamer.avatarUrl,
-            onClick = { appState.openPlayer(streamer) },
-          )
+    LazyVerticalGrid(
+      modifier = Modifier.fillMaxSize(),
+      columns = GridCells.Fixed(2),
+      contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 9.dp, bottom = 92.dp),
+      horizontalArrangement = Arrangement.spacedBy(16.dp),
+      verticalArrangement = Arrangement.spacedBy(18.dp),
+    ) {
+      item(span = { GridItemSpan(2) }) {
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+          lazyItems(items, key = { "${it.platform}-${it.roomId}" }) { streamer ->
+            HomeAvatarItem(
+              nickname = streamer.name,
+              avatarUrl = streamer.avatarUrl,
+              isLive = streamer.isLive,
+              onClick = { appState.openPlayer(streamer) },
+            )
+          }
         }
       }
-    }
 
-    items(items, key = { "${it.platform}-${it.roomId}" }) { streamer ->
-      HomeStreamerCard(
-        streamer = streamer,
-        followed = true,
-        onClick = { appState.openPlayer(streamer) },
-        onToggleFollow = { appState.toggleFollow(streamer) },
-      )
-    }
+      items(items, key = { "${it.platform}-${it.roomId}" }) { streamer ->
+        HomeStreamerCard(
+          streamer = streamer,
+          followed = true,
+          onClick = { appState.openPlayer(streamer) },
+          onToggleFollow = { appState.toggleFollow(streamer) },
+        )
+      }
 
-    item(span = { GridItemSpan(2) }) {
-      EndOfFeedCard(modifier = Modifier.padding(top = 8.dp))
+      item(span = { GridItemSpan(2) }) {
+        EndOfFeedCard(modifier = Modifier.padding(top = 8.dp))
+      }
     }
   }
 }
@@ -98,6 +128,7 @@ fun HomeScreen(
 private fun HomeAvatarItem(
   nickname: String,
   avatarUrl: String?,
+  isLive: Boolean,
   onClick: () -> Unit,
   modifier: Modifier = Modifier,
 ) {
@@ -107,33 +138,41 @@ private fun HomeAvatarItem(
 
   Column(
     modifier = modifier
-      .width(72.dp)
+      .width(60.dp)
       .clickable(onClick = onClick),
     horizontalAlignment = Alignment.CenterHorizontally,
     verticalArrangement = Arrangement.spacedBy(6.dp),
   ) {
     Box(
       modifier = Modifier
-        .size(54.dp)
-        .clip(CircleShape)
-        .border(width = 2.dp, color = accent, shape = CircleShape)
-        .padding(3.dp)
-        .clip(CircleShape),
+        .size(56.dp)
     ) {
-      if (avatar != null) {
-        NetworkImage(url = avatar, contentDescription = nickname, modifier = Modifier.matchParentSize())
-      } else {
-        Box(modifier = Modifier.matchParentSize(), contentAlignment = Alignment.Center) {
-          Text(text = nickname.take(1), style = MaterialTheme.typography.titleMedium)
+      Box(
+        modifier = Modifier
+          .matchParentSize()
+          .clip(CircleShape)
+          .border(width = 2.dp, color = accent, shape = CircleShape)
+          .padding(2.dp)
+          .clip(CircleShape)
+          .border(width = 2.dp, color = bg, shape = CircleShape)
+          .clip(CircleShape),
+      ) {
+        if (avatar != null) {
+          NetworkImage(url = avatar, contentDescription = nickname, modifier = Modifier.matchParentSize())
+        } else {
+          Box(modifier = Modifier.matchParentSize(), contentAlignment = Alignment.Center) {
+            Text(text = nickname.take(1), style = MaterialTheme.typography.titleMedium)
+          }
         }
       }
 
       Box(
         modifier = Modifier
           .align(Alignment.BottomEnd)
+          .offset(x = 1.dp, y = 1.dp)
           .size(14.dp)
           .clip(CircleShape)
-          .background(accent)
+          .background(if (isLive) accent else Color(0xFF9CA3AF))
           .border(width = 2.dp, color = bg, shape = CircleShape),
       )
     }

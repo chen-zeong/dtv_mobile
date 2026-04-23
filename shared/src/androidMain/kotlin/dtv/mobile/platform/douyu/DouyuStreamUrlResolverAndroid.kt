@@ -57,6 +57,10 @@ class DouyuStreamUrlResolverAndroid(
     )
   }
 
+  suspend fun isLive(roomId: String): Boolean = withContext(Dispatchers.IO) {
+    fetchRoomDetail(roomId).second
+  }
+
   private suspend fun fetchRoomDetail(roomId: String): Pair<String, Boolean> {
     val url = "https://www.douyu.com/betard/$roomId"
     val httpResp = client.get(url) { header(HttpHeaders.Referrer, "https://www.douyu.com/$roomId") }

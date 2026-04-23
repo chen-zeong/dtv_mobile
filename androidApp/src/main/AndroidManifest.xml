@@ -6,7 +6,8 @@
     android:label="@string/app_name"
     android:supportsRtl="true"
     android:usesCleartextTraffic="true"
-    android:theme="@style/Theme.DTV">
+    android:theme="@style/Theme.DTV"
+    android:name=".DtvApplication">
     <activity
       android:name=".MainActivity"
       android:exported="true"

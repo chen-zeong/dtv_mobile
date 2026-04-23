@@ -7,25 +7,28 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.LightMode
-import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.ViewCompact
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.ScaffoldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontStyle
@@ -33,17 +36,22 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import dtv.mobile.state.AppState
 import dtv.mobile.state.Screen
-import dtv.mobile.state.ThemeMode
 import dtv.mobile.ui.screens.HomeScreen
 import dtv.mobile.ui.screens.PlatformScreen
 import dtv.mobile.ui.screens.PlayerScreen
 import dtv.mobile.ui.screens.SearchScreen
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.Color
+import dtv.mobile.ui.system.PlatformBackHandler
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RootScaffold(appState: AppState) {
+  PlatformBackHandler(enabled = appState.currentScreen != Screen.Home) { appState.back() }
+
   Scaffold(
     modifier = Modifier.fillMaxSize(),
+    contentWindowInsets = if (appState.currentScreen == Screen.Player) WindowInsets(0) else ScaffoldDefaults.contentWindowInsets,
     topBar = {
       when (appState.currentScreen) {
         Screen.Player -> Unit
@@ -56,17 +64,21 @@ fun RootScaffold(appState: AppState) {
               }
             },
             actions = {
-              IconButton(onClick = { appState.toggleTheme() }) {
-                val icon = when (appState.themeMode) {
-                  ThemeMode.System -> Icons.Default.MoreVert
-                  ThemeMode.Light -> Icons.Default.LightMode
-                  ThemeMode.Dark -> Icons.Default.DarkMode
-                }
-                Icon(icon, contentDescription = "主题")
-              }
+              FilterChip(
+                selected = appState.simpleModeForSelectedPlatform,
+                onClick = appState::toggleSimpleModeForSelectedPlatform,
+                label = {
+                    Icon(
+                    imageVector = Icons.Default.ViewCompact,
+                    contentDescription = "简易模式",
+                    modifier = Modifier.padding(vertical = 2.dp),
+                  )
+                },
+              )
             },
             colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
-              containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
+              containerColor = Color.Transparent,
+              scrolledContainerColor = Color.Transparent,
             ),
           )
         }
@@ -74,20 +86,23 @@ fun RootScaffold(appState: AppState) {
           HubTopBar(
             title = if (appState.currentScreen == Screen.Home) "关注列表" else appState.selectedPlatform.title,
             onSearchClick = appState::openSearch,
-            onThemeToggle = appState::toggleTheme,
-            themeMode = appState.themeMode,
+            simpleMode = appState.simpleModeForSelectedPlatform,
+            onSimpleModeToggle = appState::toggleSimpleModeForSelectedPlatform,
+            showThemeToggle = appState.currentScreen == Screen.Home,
+            onThemeToggle = appState::toggleDayNight,
             showSearch = appState.currentScreen != Screen.Home,
           )
         }
       }
     },
     bottomBar = {
-      if (appState.currentScreen != Screen.Player) {
+      if (!(appState.currentScreen == Screen.Player && appState.playerFullscreen)) {
         PlatformBottomBar(
           selectedScreen = appState.dockSelectedScreen,
           selectedPlatform = appState.selectedPlatform,
           onHomeClick = appState::openHome,
           onPlatformClick = appState::selectPlatform,
+          switchingLoading = appState.platformSwitchLoading,
         )
       }
     },
@@ -117,15 +132,18 @@ fun RootScaffold(appState: AppState) {
 @Composable
 private fun HubTopBar(
   title: String,
-  themeMode: ThemeMode,
   onSearchClick: () -> Unit,
+  simpleMode: Boolean,
+  onSimpleModeToggle: () -> Unit,
+  showThemeToggle: Boolean,
   onThemeToggle: () -> Unit,
   showSearch: Boolean,
   modifier: Modifier = Modifier,
 ) {
+  val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
   Surface(
-    modifier = modifier,
-    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
+    modifier = modifier.statusBarsPadding(),
+    color = Color.Transparent,
     tonalElevation = 0.dp,
     shadowElevation = 0.dp,
   ) {
@@ -175,16 +193,30 @@ private fun HubTopBar(
         Spacer(modifier = Modifier.weight(1f))
       }
 
-      IconButton(
-        onClick = onThemeToggle,
-        modifier = Modifier.clip(CircleShape),
-      ) {
-        val icon = when (themeMode) {
-          ThemeMode.System -> Icons.Default.MoreVert
-          ThemeMode.Light -> Icons.Default.LightMode
-          ThemeMode.Dark -> Icons.Default.DarkMode
-        }
-        Icon(icon, contentDescription = "主题")
+      if (showThemeToggle) {
+        FilterChip(
+          selected = isDark,
+          onClick = onThemeToggle,
+          label = {
+            Icon(
+              imageVector = if (isDark) Icons.Default.LightMode else Icons.Default.DarkMode,
+              contentDescription = "日夜模式",
+              modifier = Modifier.padding(vertical = 2.dp),
+            )
+          },
+        )
+      } else {
+        FilterChip(
+          selected = simpleMode,
+          onClick = onSimpleModeToggle,
+          label = {
+            Icon(
+              imageVector = Icons.Default.ViewCompact,
+              contentDescription = "简易模式",
+              modifier = Modifier.padding(vertical = 2.dp),
+            )
+          },
+        )
       }
     }
   }

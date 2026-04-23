@@ -21,7 +21,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Fullscreen
@@ -53,6 +53,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -74,6 +75,7 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.animation.core.Animatable
@@ -247,12 +249,9 @@ fun PlayerScreen(
     if (!fullscreen) {
       PlayerHeader(
         streamer = streamer,
-        partition = appState.currentPartition,
         onBack = appState::back,
         followed = streamer?.let(appState::isFollowed) == true,
         onToggleFollow = { s -> appState.toggleFollow(s) },
-        partitionSubscribed = appState.currentPartition?.let(appState::isPartitionSubscribed) == true,
-        onTogglePartition = { p -> appState.togglePartition(p) },
         modifier = Modifier.fillMaxWidth(),
       )
     }
@@ -351,25 +350,30 @@ fun PlayerScreen(
 @Composable
 private fun PlayerHeader(
   streamer: Streamer?,
-  partition: dtv.mobile.state.SubscribedPartition?,
   onBack: () -> Unit,
   followed: Boolean,
   onToggleFollow: (Streamer) -> Unit,
-  partitionSubscribed: Boolean,
-  onTogglePartition: (dtv.mobile.state.SubscribedPartition) -> Unit,
   modifier: Modifier = Modifier,
 ) {
+  val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+  val headerBg = if (isDark) Color.Black else MaterialTheme.colorScheme.surface
+  val headerFg = if (isDark) Color.White else MaterialTheme.colorScheme.onSurface
+  val mutedFg = if (isDark) Color(0xFF9CA3AF) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f)
+  val liveDot = if (streamer?.isLive == true) MaterialTheme.colorScheme.primary else Color(0xFF9CA3AF)
+  val controlBg = if (isDark) Color.White.copy(alpha = 0.10f) else MaterialTheme.colorScheme.background
+  val controlBorder = if (isDark) Color.White.copy(alpha = 0.14f) else MaterialTheme.colorScheme.outline.copy(alpha = 0.30f)
+
   Surface(
     modifier = modifier,
-    color = Color.Black,
+    color = headerBg,
     tonalElevation = 0.dp,
     shadowElevation = 0.dp,
   ) {
     Column(
       modifier = Modifier
         .statusBarsPadding()
-        .padding(horizontal = 18.dp, vertical = 12.dp),
-      verticalArrangement = Arrangement.spacedBy(10.dp),
+        .padding(horizontal = 12.dp, vertical = 4.dp),
+      verticalArrangement = Arrangement.spacedBy(0.dp),
     ) {
       Row(
         modifier = Modifier.fillMaxWidth(),
@@ -377,29 +381,12 @@ private fun PlayerHeader(
         horizontalArrangement = Arrangement.SpaceBetween,
       ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-          Surface(
-            modifier = Modifier.size(40.dp).clip(CircleShape).clickable(onClick = onBack),
-            shape = CircleShape,
-            color = Color.White.copy(alpha = 0.10f),
-            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.14f)),
-            tonalElevation = 0.dp,
-            shadowElevation = 0.dp,
-          ) {
-            Box(contentAlignment = Alignment.Center) {
-              Icon(
-                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                contentDescription = "返回",
-                tint = Color.White.copy(alpha = 0.92f),
-              )
-            }
-          }
-
           val avatar = normalizeHttpUrl(streamer?.avatarUrl)
           Box(
             modifier = Modifier
               .size(44.dp)
               .clip(CircleShape)
-              .background(Color.White.copy(alpha = 0.08f)),
+              .background(if (isDark) Color.White.copy(alpha = 0.08f) else MaterialTheme.colorScheme.background),
             contentAlignment = Alignment.Center,
           ) {
             if (avatar != null) {
@@ -407,7 +394,7 @@ private fun PlayerHeader(
             } else {
               Text(
                 text = streamer?.name?.take(1).orEmpty(),
-                color = Color.White.copy(alpha = 0.9f),
+                color = headerFg.copy(alpha = 0.9f),
                 style = MaterialTheme.typography.titleSmall,
               )
             }
@@ -417,89 +404,59 @@ private fun PlayerHeader(
             Text(
               text = streamer?.name.orEmpty(),
               style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Black),
-              color = Color.White,
+              color = headerFg,
+              maxLines = 1,
+              overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+              text = streamer?.title?.trim().orEmpty(),
+              style = MaterialTheme.typography.labelSmall,
+              color = mutedFg,
               maxLines = 1,
               overflow = TextOverflow.Ellipsis,
             )
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-              Box(modifier = Modifier.size(6.dp).clip(CircleShape).background(Color(0xFFEF4444)))
+              Box(modifier = Modifier.size(6.dp).clip(CircleShape).background(liveDot))
               Text(
                 text = streamer?.platform?.title.orEmpty(),
                 style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                color = Color(0xFF9CA3AF),
+                color = mutedFg,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
               )
             }
           }
-        }
 
-        if (streamer != null) {
-          val buttonShape = RoundedCornerShape(999.dp)
-          val btnBg = if (followed) Color.White.copy(alpha = 0.10f) else MaterialTheme.colorScheme.primary
-          val btnFg = if (followed) Color.White else Color.Black
-          Surface(
-            modifier = Modifier
-              .clip(buttonShape)
-              .clickable { onToggleFollow(streamer) },
-            shape = buttonShape,
-            color = btnBg,
-            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.14f)),
-            tonalElevation = 0.dp,
-            shadowElevation = 0.dp,
-          ) {
-            Row(
-              modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp),
-              verticalAlignment = Alignment.CenterVertically,
-              horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
+          if (streamer != null) {
+            val iconTint = if (followed) MaterialTheme.colorScheme.primary else mutedFg
+            IconButton(onClick = { onToggleFollow(streamer) }) {
               Icon(
                 imageVector = if (followed) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                contentDescription = if (followed) "已订阅" else "订阅",
-                tint = btnFg,
-              )
-              Text(
-                text = if (followed) "已订阅" else "订阅",
-                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Black),
-                color = btnFg,
+                contentDescription = if (followed) "已收藏" else "收藏",
+                tint = iconTint,
               )
             }
           }
         }
-      }
 
-      if (partition != null) {
-        val shape = RoundedCornerShape(18.dp)
         Surface(
-          modifier = Modifier
-            .clip(shape)
-            .clickable { onTogglePartition(partition) },
-          shape = shape,
-          color = Color.White.copy(alpha = 0.10f),
-          border = BorderStroke(1.dp, Color.White.copy(alpha = 0.12f)),
+          modifier = Modifier.size(40.dp).clip(CircleShape).clickable(onClick = onBack),
+          shape = CircleShape,
+          color = controlBg,
+          border = BorderStroke(1.dp, controlBorder),
           tonalElevation = 0.dp,
           shadowElevation = 0.dp,
         ) {
-          Row(
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-          ) {
+          Box(contentAlignment = Alignment.Center) {
             Icon(
-              imageVector = if (partitionSubscribed) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-              contentDescription = if (partitionSubscribed) "已订阅分区" else "订阅分区",
-              tint = if (partitionSubscribed) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.9f),
-            )
-            Text(
-              text = if (partitionSubscribed) "已订阅分区：${partition.name}" else "订阅分区：${partition.name}",
-              style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
-              color = Color.White.copy(alpha = 0.92f),
-              maxLines = 1,
-              overflow = TextOverflow.Ellipsis,
+              imageVector = Icons.Default.Close,
+              contentDescription = "关闭",
+              tint = headerFg.copy(alpha = 0.92f),
             )
           }
         }
       }
+
     }
   }
 }
@@ -625,11 +582,9 @@ private fun HubDanmakuPanel(
 ) {
   val listState = rememberLazyListState()
 
-  LaunchedEffect(messages.size) {
-    val size = messages.size
-    if (size > 0) {
-      listState.scrollToItem(index = size - 1)
-    }
+  val display = remember(messages) { messages.asReversed() }
+  LaunchedEffect(display.size) {
+    if (display.isNotEmpty()) listState.scrollToItem(index = 0)
   }
 
   LazyColumn(
@@ -637,10 +592,14 @@ private fun HubDanmakuPanel(
       .fillMaxWidth()
       .height(260.dp),
     state = listState,
+    reverseLayout = true,
     contentPadding = PaddingValues(0.dp),
     verticalArrangement = Arrangement.spacedBy(8.dp),
   ) {
-    items(messages, key = { it.roomId + ":" + it.user + ":" + it.content }) { msg ->
+    itemsIndexed(
+      display,
+      key = { index, msg -> "${msg.roomId}:${msg.user}:${msg.content}:$index" },
+    ) { _, msg ->
       HubDanmakuRow(
         user = msg.user.trim().ifBlank { "匿名" },
         content = msg.content.trim(),
@@ -655,6 +614,12 @@ private fun HubDanmakuRow(
   content: String,
   modifier: Modifier = Modifier,
 ) {
+  val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+  val userChipBg = if (isDark) Color.White.copy(alpha = 0.10f) else MaterialTheme.colorScheme.surface
+  val userChipBorder = if (isDark) null else BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.22f))
+  val userFg = if (isDark) Color(0xFF9CA3AF) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
+  val contentFg = if (isDark) Color.White.copy(alpha = 0.92f) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.9f)
+
   Row(
     modifier = modifier.fillMaxWidth(),
     verticalAlignment = Alignment.Top,
@@ -662,14 +627,15 @@ private fun HubDanmakuRow(
   ) {
     Surface(
       shape = RoundedCornerShape(8.dp),
-      color = Color.White.copy(alpha = 0.10f),
+      color = userChipBg,
+      border = userChipBorder,
       tonalElevation = 0.dp,
       shadowElevation = 0.dp,
     ) {
       Text(
         text = user,
         style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Black),
-        color = Color(0xFF9CA3AF),
+        color = userFg,
         modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
         maxLines = 1,
         overflow = TextOverflow.Ellipsis,
@@ -679,7 +645,7 @@ private fun HubDanmakuRow(
     Text(
       text = content,
       style = MaterialTheme.typography.bodySmall,
-      color = Color.White.copy(alpha = 0.92f),
+      color = contentFg,
       modifier = Modifier
         .weight(1f)
         .padding(top = 1.dp),

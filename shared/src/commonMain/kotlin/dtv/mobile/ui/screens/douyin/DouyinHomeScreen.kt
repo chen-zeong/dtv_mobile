@@ -1,5 +1,6 @@
 package dtv.mobile.ui.screens.douyin
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -16,7 +17,7 @@ import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -30,8 +31,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import dtv.mobile.model.Streamer
@@ -42,11 +43,11 @@ import dtv.mobile.repo.PagedResult
 import dtv.mobile.state.AppState
 import dtv.mobile.state.SubscribedPartition
 import dtv.mobile.ui.components.CategoryPill
+import dtv.mobile.ui.components.LazyGridLoadMoreEffect
+import dtv.mobile.ui.components.PullToRefreshBox
 import dtv.mobile.ui.components.StreamerCard
-import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.filter
-import kotlinx.coroutines.flow.map
+import dtv.mobile.ui.components.StreamerCardSkeleton
+import kotlinx.coroutines.launch
 import kotlin.random.Random
 
 private const val PAGE_SIZE = 15
@@ -75,8 +76,10 @@ fun DouyinHomeScreen(
   var hasMore by remember { mutableStateOf(true) }
   var offset by remember { mutableIntStateOf(0) }
   var msToken by remember { mutableStateOf(generateMsToken()) }
+  var refreshing by remember { mutableStateOf(false) }
 
   val gridState = rememberLazyGridState()
+  val scope = rememberCoroutineScope()
 
   suspend fun loadPage(reset: Boolean) {
     val cate2 = selectedCate2 ?: return
@@ -96,10 +99,20 @@ fun DouyinHomeScreen(
       limit = PAGE_SIZE,
       msToken = msToken,
     )
-    rooms = if (reset) resp.items else rooms + resp.items
-    hasMore = resp.items.size == PAGE_SIZE
-    offset += resp.items.size
+    val incoming = resp.items
+    val old = rooms
+    val (merged, addedCount) = if (reset) {
+      incoming to incoming.size
+    } else {
+      val existing = old.asSequence().map { it.roomId }.toHashSet()
+      val added = incoming.filter { existing.add(it.roomId) }
+      (old + added) to added.size
+    }
+    rooms = merged
+    hasMore = incoming.isNotEmpty() && addedCount > 0
+    offset += incoming.size
     if (reset) loading = false else loadingMore = false
+    if (reset) appState.platformSwitchLoading = false
   }
 
   LaunchedEffect(Unit) {
@@ -117,17 +130,12 @@ fun DouyinHomeScreen(
     gridState.scrollToItem(0)
   }
 
-  LaunchedEffect(gridState, loading, loadingMore, hasMore, rooms.size) {
-    if (loading) return@LaunchedEffect
-    snapshotFlow { gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0 }
-      .map { lastVisible -> lastVisible >= (rooms.size - 4).coerceAtLeast(0) }
-      .distinctUntilChanged()
-      .filter { it }
-      .collectLatest {
-        if (hasMore && !loadingMore) {
-          loadPage(reset = false)
-        }
-      }
+  LazyGridLoadMoreEffect(
+    gridState = gridState,
+    enabled = !loading && !loadingMore && hasMore,
+    itemCount = rooms.size,
+  ) {
+    loadPage(reset = false)
   }
 
   if (showCate2Sheet) {
@@ -151,103 +159,110 @@ fun DouyinHomeScreen(
     }
   }
 
-  Column(modifier = modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
-    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-      items(categories, key = { it.name }) { c1 ->
-        CategoryPill(
-          label = c1.name,
-          selected = c1.name == selectedCate1?.name,
-          onClick = {
-            selectedCate1 = c1
-            selectedCate2 = c1.cate2List.firstOrNull()
-          },
+  PullToRefreshBox(
+    refreshing = refreshing,
+    onRefresh = {
+      if (refreshing || loading) return@PullToRefreshBox
+      scope.launch {
+        refreshing = true
+        runCatching {
+          loadPage(reset = true)
+          gridState.scrollToItem(0)
+        }
+        refreshing = false
+      }
+    },
+    modifier = modifier.fillMaxSize(),
+  ) {
+    Column(modifier = Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 6.dp)) {
+      LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+        items(categories, key = { it.name }) { c1 ->
+          CategoryPill(
+            label = c1.name,
+            selected = c1.name == selectedCate1?.name,
+            onClick = {
+              selectedCate1 = c1
+              selectedCate2 = c1.cate2List.firstOrNull()
+            },
+          )
+        }
+      }
+
+      Spacer(modifier = Modifier.height(6.dp))
+      val currentPartition: SubscribedPartition? = selectedCate2?.let {
+        SubscribedPartition(
+          id = "douyin:${it.partitionType}:${it.partition}",
+          name = it.name,
+          platform = Platform.Douyin,
         )
       }
-    }
-
-    Spacer(modifier = Modifier.height(6.dp))
-    val currentPartition: SubscribedPartition? = selectedCate2?.let {
-      SubscribedPartition(
-        id = "douyin:${it.partitionType}:${it.partition}",
-        name = it.name,
-        platform = Platform.Douyin,
-      )
-    }
-    Row(
-      modifier = Modifier.fillMaxWidth(),
-      horizontalArrangement = Arrangement.SpaceBetween,
-      verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
-    ) {
       Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
       ) {
-        Text(
-          text = "当前:",
-          style = MaterialTheme.typography.labelMedium.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold),
-          color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f),
-        )
-        Text(
-          text = selectedCate2?.name ?: "选择分类",
-          style = MaterialTheme.typography.titleMedium,
-          color = MaterialTheme.colorScheme.onSurface,
-          maxLines = 1,
-          overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-        )
-        IconButton(onClick = { if (selectedCate1 != null) showCate2Sheet = true }) {
-          Icon(imageVector = Icons.Default.MoreVert, contentDescription = "更多分类")
+        Row(
+          verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+          horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+          Text(
+            text = "当前:",
+            style = MaterialTheme.typography.labelMedium.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold),
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f),
+          )
+          Text(
+            text = selectedCate2?.name ?: "选择分类",
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.primary,
+            maxLines = 1,
+            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+            modifier = Modifier
+              .clickable(enabled = selectedCate1 != null) { showCate2Sheet = true },
+          )
+          IconButton(onClick = { if (selectedCate1 != null) showCate2Sheet = true }) {
+            Icon(imageVector = Icons.Default.MoreHoriz, contentDescription = "更多分类")
+          }
+        }
+
+        if (currentPartition != null) {
+          val subscribed = appState.isPartitionSubscribed(currentPartition)
+          TextButton(onClick = { appState.togglePartition(currentPartition) }) {
+            Text(text = if (subscribed) "已订阅" else "订阅")
+          }
         }
       }
+      Spacer(modifier = Modifier.height(8.dp))
 
-      if (currentPartition != null) {
-        val subscribed = appState.isPartitionSubscribed(currentPartition)
-        TextButton(onClick = { appState.togglePartition(currentPartition) }) {
-          Text(text = if (subscribed) "已订阅" else "订阅")
-        }
-      }
-    }
-    Spacer(modifier = Modifier.height(10.dp))
+      LazyVerticalGrid(
+        modifier = Modifier.fillMaxSize(),
+        state = gridState,
+        columns = GridCells.Fixed(2),
+        contentPadding = PaddingValues(bottom = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+      ) {
+        if (loading || appState.platformSwitchLoading) {
+          items(6, span = { GridItemSpan(1) }) {
+            StreamerCardSkeleton()
+          }
+        } else {
+          items(rooms.size, key = { rooms[it].roomId }, span = { GridItemSpan(1) }) { index ->
+            val streamer = rooms[index]
+            StreamerCard(
+              streamer = streamer,
+              followed = appState.isFollowed(streamer),
+              onClick = { appState.openPlayer(streamer, partition = currentPartition) },
+              onToggleFollow = { appState.toggleFollow(streamer) },
+            )
+          }
 
-    LazyVerticalGrid(
-      modifier = Modifier.fillMaxSize(),
-      state = gridState,
-      columns = GridCells.Fixed(2),
-      contentPadding = PaddingValues(bottom = 92.dp),
-      verticalArrangement = Arrangement.spacedBy(10.dp),
-      horizontalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-      if (loading) {
-        items(6, span = { GridItemSpan(1) }) { idx ->
-          StreamerCard(
-            streamer = Streamer(
-              platform = dtv.mobile.model.Platform.Douyin,
-              roomId = "loading-$idx",
-              name = "加载中…",
-              title = "正在请求抖音数据",
-              viewerText = "",
-              isLive = true,
-            ),
-            followed = false,
-            onClick = {},
-          )
-        }
-      } else {
-        items(rooms.size, key = { rooms[it].roomId }, span = { GridItemSpan(1) }) { index ->
-          val streamer = rooms[index]
-          StreamerCard(
-            streamer = streamer,
-            followed = appState.isFollowed(streamer),
-            onClick = { appState.openPlayer(streamer, partition = currentPartition) },
-            onToggleFollow = { appState.toggleFollow(streamer) },
-          )
-        }
-
-        item(span = { GridItemSpan(2) }) {
-          Spacer(modifier = Modifier.height(4.dp))
-          when {
-            loadingMore -> Text("加载更多…", style = MaterialTheme.typography.bodyMedium)
-            hasMore -> Text("继续滑动加载更多", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f))
-            else -> Text("没有更多了", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f))
+          item(span = { GridItemSpan(2) }) {
+            Spacer(modifier = Modifier.height(4.dp))
+            when {
+              loadingMore -> Text("加载更多…", style = MaterialTheme.typography.bodyMedium)
+              hasMore -> Text("继续滑动加载更多", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f))
+              else -> Spacer(modifier = Modifier.height(12.dp))
+            }
           }
         }
       }

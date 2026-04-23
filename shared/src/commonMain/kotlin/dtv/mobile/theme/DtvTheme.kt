@@ -10,6 +10,7 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Brush
 import dtv.mobile.state.ThemeMode
+import dtv.mobile.ui.system.SystemBarsEffect
 
 @Immutable
 data class DtvExtras(
@@ -58,6 +59,8 @@ fun DtvTheme(
     ThemeMode.Light -> false
   }
   val scheme = if (dark) nightScheme() else dayScheme()
+
+  SystemBarsEffect(darkTheme = dark)
 
   val accentGradient = Brush.linearGradient(
     colors = listOf(

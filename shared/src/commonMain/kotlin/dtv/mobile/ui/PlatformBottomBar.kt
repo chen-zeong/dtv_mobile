@@ -1,5 +1,6 @@
 package dtv.mobile.ui
 
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -7,29 +8,29 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Public
-import androidx.compose.material.icons.filled.SmartDisplay
-import androidx.compose.material.icons.filled.SportsEsports
-import androidx.compose.material.icons.filled.VideoLibrary
+import androidx.compose.material.icons.filled.LiveTv
+import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.Pets
+import androidx.compose.material.icons.filled.WaterDrop
+import androidx.compose.material3.Text
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dtv.mobile.model.Platform
 import dtv.mobile.state.Screen
@@ -40,69 +41,64 @@ fun PlatformBottomBar(
   selectedPlatform: Platform,
   onHomeClick: () -> Unit,
   onPlatformClick: (Platform) -> Unit,
+  switchingLoading: Boolean = false,
 ) {
   val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
-  val containerColor = if (isDark) Color.Black.copy(alpha = 0.60f) else Color.White.copy(alpha = 0.86f)
-  val containerBorder = if (isDark) Color.White.copy(alpha = 0.10f) else Color(0xFFE5E7EB)
+  val containerColor = MaterialTheme.colorScheme.surface.copy(alpha = if (isDark) 0.92f else 0.98f)
   val activeBg = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
   val inactiveIcon = if (isDark) Color(0xFF6B7280) else Color(0xFF9CA3AF)
-  val inactiveLabel = if (isDark) Color(0xFF6B7280) else Color(0xFF9CA3AF)
-  val activeLabel = if (isDark) Color.White else Color.Black
+  val barShape = RoundedCornerShape(0.dp)
 
-  Box(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
-    Surface(
+  Surface(
+    modifier = Modifier
+      .fillMaxWidth()
+      .clip(barShape),
+    shape = barShape,
+    color = containerColor,
+    tonalElevation = 0.dp,
+    shadowElevation = if (isDark) 0.dp else 18.dp,
+    border = null,
+  ) {
+    Row(
       modifier = Modifier
-        .widthIn(max = 520.dp)
-        .align(androidx.compose.ui.Alignment.Center)
-        .clip(RoundedCornerShape(26.dp)),
-      shape = RoundedCornerShape(26.dp),
-      color = containerColor,
-      tonalElevation = 0.dp,
-      shadowElevation = if (isDark) 0.dp else 18.dp,
-      border = BorderStroke(1.dp, containerBorder),
+        .fillMaxWidth()
+        .navigationBarsPadding()
+        .padding(vertical = 6.dp),
+      horizontalArrangement = Arrangement.SpaceAround,
     ) {
-      Row(
-        modifier = Modifier.fillMaxWidth().padding(8.dp),
-        horizontalArrangement = Arrangement.SpaceAround,
+      DockItem(
+        selected = selectedScreen == Screen.Home,
+        label = "首页",
+        activeBackground = activeBg,
+        onClick = onHomeClick.takeUnless { switchingLoading } ?: {},
       ) {
-        DockItem(
-          title = "主页",
-          selected = selectedScreen == Screen.Home,
-          activeBackground = activeBg,
-          activeLabelColor = activeLabel,
-          inactiveLabelColor = inactiveLabel,
-          onClick = onHomeClick,
-        ) {
-          Icon(
-            imageVector = Icons.Default.Home,
-            contentDescription = "主页",
-            tint = if (selectedScreen == Screen.Home) MaterialTheme.colorScheme.primary else inactiveIcon,
-          )
-        }
+        Icon(
+          imageVector = Icons.Default.Home,
+          contentDescription = "首页",
+          tint = if (selectedScreen == Screen.Home) MaterialTheme.colorScheme.primary else inactiveIcon,
+        )
+      }
 
-        Platform.entries.filter { it != Platform.Custom }.forEach { platform ->
-          val isSelected = selectedScreen == Screen.Platform && platform == selectedPlatform
-          DockItem(
-            title = platform.title,
-            selected = isSelected,
-            activeBackground = activeBg,
-            activeLabelColor = activeLabel,
-            inactiveLabelColor = inactiveLabel,
-            onClick = { onPlatformClick(platform) },
-          ) {
-            val icon = when (platform) {
-              Platform.Douyu -> Icons.Default.SportsEsports
-              Platform.Huya -> Icons.Default.SmartDisplay
-              Platform.Douyin -> Icons.Default.Public
-              Platform.Bilibili -> Icons.Default.VideoLibrary
-              Platform.Custom -> Icons.Default.Home
-            }
-            Icon(
-              imageVector = icon,
-              contentDescription = platform.title,
-              tint = if (isSelected) MaterialTheme.colorScheme.primary else inactiveIcon,
-            )
+      Platform.entries.filter { it != Platform.Custom }.forEach { platform ->
+        val isSelected = selectedScreen == Screen.Platform && platform == selectedPlatform
+        DockItem(
+          selected = isSelected,
+          label = platform.title,
+          activeBackground = activeBg,
+          onClick = { if (!switchingLoading) onPlatformClick(platform) },
+        ) {
+          val icon = when (platform) {
+            Platform.Douyu -> Icons.Default.WaterDrop
+            Platform.Huya -> Icons.Default.Pets
+            Platform.Douyin -> Icons.Default.MusicNote
+            Platform.Bilibili -> Icons.Default.LiveTv
+            Platform.Custom -> Icons.Default.Home
           }
+          Icon(
+            imageVector = icon,
+            contentDescription = platform.title,
+            tint = if (isSelected) MaterialTheme.colorScheme.primary else inactiveIcon,
+          )
         }
       }
     }
@@ -111,48 +107,43 @@ fun PlatformBottomBar(
 
 @Composable
 private fun RowScope.DockItem(
-  title: String,
   selected: Boolean,
+  label: String,
   activeBackground: Color,
-  activeLabelColor: Color,
-  inactiveLabelColor: Color,
   onClick: () -> Unit,
   icon: @Composable () -> Unit,
 ) {
+  val scale = animateFloatAsState(targetValue = if (selected) 1.08f else 1.0f, label = "dockScale").value
+  val bgAlpha = animateFloatAsState(targetValue = if (selected) 1.0f else 0.0f, label = "dockBgAlpha").value
+
   Column(
     modifier = Modifier
       .weight(1f)
-      .height(64.dp)
-      .clip(RoundedCornerShape(20.dp))
       .clickable { onClick() }
-      .padding(vertical = 10.dp),
+      .defaultMinSize(minHeight = 64.dp)
+      .padding(vertical = 6.dp),
     horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
-    verticalArrangement = Arrangement.spacedBy(2.dp),
+    verticalArrangement = Arrangement.spacedBy(4.dp),
   ) {
-    Box(modifier = Modifier.fillMaxSize()) {
-      if (selected) {
-        Surface(
-          modifier = Modifier.fillMaxSize(),
-          shape = RoundedCornerShape(20.dp),
-          color = activeBackground,
-          tonalElevation = 0.dp,
-          shadowElevation = 0.dp,
-        ) {}
-      }
-
-      Column(
-        modifier = Modifier.fillMaxSize(),
-        horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(2.dp),
-      ) {
-        icon()
-        Text(
-          text = title,
-          style = MaterialTheme.typography.labelSmall,
-          color = if (selected) activeLabelColor else inactiveLabelColor,
-        )
-        Spacer(modifier = Modifier.height(2.dp))
+    Surface(
+      shape = RoundedCornerShape(14.dp),
+      color = activeBackground.copy(alpha = activeBackground.alpha * bgAlpha),
+      tonalElevation = 0.dp,
+      shadowElevation = 0.dp,
+    ) {
+      Box(modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
+        Box(modifier = Modifier.graphicsLayer(scaleX = scale, scaleY = scale)) {
+          icon()
+        }
       }
     }
+
+    Text(
+      text = label,
+      style = MaterialTheme.typography.labelSmall.copy(fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium),
+      color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
+      maxLines = 1,
+      overflow = TextOverflow.Ellipsis,
+    )
   }
 }

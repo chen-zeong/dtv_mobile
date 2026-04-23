@@ -51,6 +51,8 @@ class DouyinWebApiAndroid(
     val title: String?,
     val anchorName: String?,
     val avatarUrl: String?,
+    val coverUrl: String?,
+    val viewerCountStr: String?,
     val roomId: String?,
     val msToken: String?,
     val hlsPullUrlMap: Map<String, String>,
@@ -204,6 +206,9 @@ class DouyinWebApiAndroid(
     val anchorName = user?.string(listOf("nickname"))
     val avatarUrl = user?.obj(listOf("avatar_thumb"))?.arr(listOf("url_list"))?.firstOrNull().stringValueOrNull()
     val title = room?.string(listOf("title"))
+    val coverUrl = room?.obj(listOf("cover"))?.arr(listOf("url_list"))?.firstOrNull().stringValueOrNull()
+    val stats = room?.obj(listOf("stats"))
+    val viewerCountStr = (stats?.string(listOf("user_count_str")) ?: stats?.string(listOf("total_user_str")))
     val roomId = room?.get("id_str").stringValueOrNull()
       ?: room?.get("id").stringValueOrNull()
 
@@ -215,6 +220,8 @@ class DouyinWebApiAndroid(
       title = title,
       anchorName = anchorName,
       avatarUrl = avatarUrl,
+      coverUrl = coverUrl,
+      viewerCountStr = viewerCountStr,
       roomId = roomId,
       msToken = msToken,
       hlsPullUrlMap = hlsMap.filterValues { it.isNotBlank() },

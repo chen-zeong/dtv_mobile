@@ -2,6 +2,7 @@ package dtv.mobile.state
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -24,6 +25,7 @@ class AppState(
   private val subscriptionStore: SubscriptionStore,
 ) {
   var themeMode: ThemeMode by mutableStateOf(ThemeMode.System)
+  var platformSwitchLoading: Boolean by mutableStateOf(false)
   var selectedPlatform: Platform by mutableStateOf(Platform.Douyu)
   var currentScreen: Screen by mutableStateOf(Screen.Home)
   var currentStreamer: Streamer? by mutableStateOf(null)
@@ -34,10 +36,15 @@ class AppState(
 
   val followedStreamers = mutableStateListOf<Streamer>()
   val subscribedPartitions = mutableStateListOf<SubscribedPartition>()
+  private val simpleModeByPlatform = mutableStateMapOf<Platform, Boolean>()
 
   init {
     followedStreamers.addAll(subscriptionStore.loadFollowedStreamers())
     subscribedPartitions.addAll(subscriptionStore.loadSubscribedPartitions())
+
+    subscriptionStore.loadSimpleModeByPlatform().forEach { entry ->
+      simpleModeByPlatform[entry.platform] = entry.enabled
+    }
   }
 
   val dockSelectedScreen: Screen
@@ -69,6 +76,58 @@ class AppState(
     }
   }
 
+  fun toggleDayNight() {
+    themeMode = when (themeMode) {
+      ThemeMode.Dark -> ThemeMode.Light
+      ThemeMode.Light, ThemeMode.System -> ThemeMode.Dark
+    }
+  }
+
+  fun isSimpleMode(platform: Platform): Boolean = simpleModeByPlatform[platform] ?: false
+
+  val simpleModeForSelectedPlatform: Boolean
+    get() = isSimpleMode(selectedPlatform)
+
+  fun toggleSimpleModeForSelectedPlatform() {
+    val p = selectedPlatform
+    val next = !(simpleModeByPlatform[p] ?: false)
+    simpleModeByPlatform[p] = next
+    val entries = simpleModeByPlatform.entries.map { (platform, enabled) -> SimpleModeEntry(platform = platform, enabled = enabled) }
+    subscriptionStore.saveSimpleModeByPlatform(entries)
+  }
+
+  suspend fun refreshFollowedLiveStatus() {
+    val snapshot = followedStreamers.toList()
+    snapshot.forEach { streamer ->
+      val live = repo.fetchLiveStatus(streamer) ?: return@forEach
+      val key = streamerKey(streamer)
+      val index = followedStreamers.indexOfFirst { streamerKey(it) == key }
+      if (index >= 0) {
+        val current = followedStreamers[index]
+        if (current.isLive != live) {
+          followedStreamers[index] = current.copy(isLive = live)
+        }
+      }
+    }
+  }
+
+  suspend fun refreshFollowedStreamerCards() {
+    val snapshot = followedStreamers.toList()
+    val updated = snapshot.map { s ->
+      repo.fetchFollowedStreamerSnapshot(s)?.let { it.copy(platform = s.platform, roomId = s.roomId) } ?: s
+    }
+
+    val sorted = updated.sortedWith(
+      compareByDescending<Streamer> { it.isLive }
+        .thenBy { it.platform.ordinal }
+        .thenBy { it.name },
+    )
+
+    followedStreamers.clear()
+    followedStreamers.addAll(sorted)
+    subscriptionStore.saveFollowedStreamers(followedStreamers.toList())
+  }
+
   private fun partitionKey(p: SubscribedPartition): String = "${p.platform?.name ?: "any"}:${p.id}"
 
   fun isPartitionSubscribed(p: SubscribedPartition): Boolean {
@@ -92,6 +151,7 @@ class AppState(
   }
 
   fun selectPlatform(platform: Platform) {
+    platformSwitchLoading = true
     selectedPlatform = platform
     if (currentScreen == Screen.Search) {
       // keep current screen for better UX when switching tabs during search

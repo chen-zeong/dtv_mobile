@@ -1,6 +1,7 @@
 package dtv.mobile.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -15,10 +16,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -34,6 +32,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dtv.mobile.model.Streamer
+import dtv.mobile.util.formatViewerCountWanIfNeeded
 import dtv.mobile.util.normalizeHttpUrl
 
 @Composable
@@ -109,34 +108,11 @@ fun HomeStreamerCard(
         )
       }
 
-      if (onToggleFollow != null) {
+      if (streamer.viewerText.isNotBlank()) {
         Surface(
           modifier = Modifier
             .align(Alignment.TopEnd)
             .padding(end = 12.dp, top = 12.dp),
-          shape = CircleShape,
-          color = Color.Black.copy(alpha = 0.40f),
-          border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.12f)),
-          tonalElevation = 0.dp,
-          shadowElevation = 0.dp,
-        ) {
-          IconButton(onClick = onToggleFollow, modifier = Modifier.size(42.dp)) {
-            val icon = if (followed) Icons.Default.Favorite else Icons.Default.FavoriteBorder
-            Icon(
-              imageVector = icon,
-              contentDescription = if (followed) "已关注" else "关注",
-              tint = if (followed) accent else Color.White.copy(alpha = 0.92f),
-              modifier = Modifier.size(18.dp),
-            )
-          }
-        }
-      }
-
-      if (streamer.viewerText.isNotBlank()) {
-        Surface(
-          modifier = Modifier
-            .align(Alignment.BottomEnd)
-            .padding(end = 14.dp, bottom = 14.dp),
           shape = RoundedCornerShape(999.dp),
           color = Color.Black.copy(alpha = 0.40f),
           border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.10f)),
@@ -144,10 +120,10 @@ fun HomeStreamerCard(
           shadowElevation = 0.dp,
         ) {
           Text(
-            text = streamer.viewerText,
+            text = formatViewerCountWanIfNeeded(streamer.viewerText),
             style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Black),
             color = accent,
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
           )
@@ -156,32 +132,48 @@ fun HomeStreamerCard(
     }
 
     Box(modifier = Modifier.fillMaxWidth()) {
-      Surface(
+      Box(
         modifier = Modifier
           .padding(start = 14.dp)
           .offset(y = (-20).dp)
-          .size(44.dp)
-          .clip(RoundedCornerShape(18.dp)),
-        shape = RoundedCornerShape(18.dp),
-        color = MaterialTheme.colorScheme.background,
-        tonalElevation = 0.dp,
-        shadowElevation = 0.dp,
-        border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = if (isDark) 0.10f else 0.05f)),
+          .size(44.dp),
       ) {
-        if (avatar != null) {
-          NetworkImage(url = avatar, contentDescription = streamer.name, modifier = Modifier.matchParentSize())
-        } else {
-          Box(modifier = Modifier.matchParentSize(), contentAlignment = Alignment.Center) {
-            Text(text = streamer.name.take(1), style = MaterialTheme.typography.titleSmall)
+        Surface(
+          modifier = Modifier
+            .matchParentSize()
+            .clip(RoundedCornerShape(18.dp)),
+          shape = RoundedCornerShape(18.dp),
+          color = MaterialTheme.colorScheme.background,
+          tonalElevation = 0.dp,
+          shadowElevation = 0.dp,
+          border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = if (isDark) 0.10f else 0.05f)),
+        ) {
+          if (avatar != null) {
+            NetworkImage(url = avatar, contentDescription = streamer.name, modifier = Modifier.matchParentSize())
+          } else {
+            Box(modifier = Modifier.matchParentSize(), contentAlignment = Alignment.Center) {
+              Text(text = streamer.name.take(1), style = MaterialTheme.typography.titleSmall)
+            }
           }
         }
+
+        Box(
+          modifier = Modifier
+            .align(Alignment.BottomEnd)
+            .offset(x = 1.dp, y = 1.dp)
+            .size(12.dp)
+            .clip(CircleShape)
+            .background(if (streamer.isLive) accent else Color(0xFF9CA3AF))
+            .border(width = 2.dp, color = MaterialTheme.colorScheme.background, shape = CircleShape),
+        )
       }
 
       Column(
         modifier = Modifier
           .fillMaxWidth()
-          .padding(start = 72.dp, top = 2.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
+          .padding(start = 72.dp, top = 0.dp)
+          .offset(y = (-2).dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
       ) {
         Row(
           modifier = Modifier.fillMaxWidth(),

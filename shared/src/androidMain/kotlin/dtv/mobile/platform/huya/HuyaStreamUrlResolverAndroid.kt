@@ -79,6 +79,43 @@ class HuyaStreamUrlResolverAndroid(
 
   private fun currentMillis(): Long = System.currentTimeMillis()
 
+  suspend fun isLive(roomId: String): Boolean {
+    suspend fun fetchHtml(useMobileHeaders: Boolean): String {
+      val url = "https://www.huya.com/$roomId"
+      return client.get(url) {
+        headers {
+          if (useMobileHeaders) {
+            append("User-Agent", IOS_MOBILE_UA)
+            append("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+            append("Referer", "https://m.huya.com/")
+          } else {
+            append("User-Agent", DESKTOP_UA)
+            append("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8")
+            append("Referer", "https://www.huya.com/")
+          }
+          append("Accept-Language", "zh-CN,zh;q=0.9,en-US;q=0.6,en;q=0.4")
+          append("Cookie", HUYA_WEBH5_COOKIE)
+        }
+      }.bodyAsText()
+    }
+
+    fun hasCandidates(html: String): Boolean {
+      val re = Regex("(?s)stream:\\s*(\\{\"data\".*?),\"iWebDefaultBitRate\"")
+      val match = re.find(html) ?: return false
+      val jsonStr = match.groupValues[1] + "}"
+      val value = runCatching { json.parseToJsonElement(jsonStr).jsonObject }.getOrNull() ?: return false
+      val dataList = value["data"]?.jsonArray ?: return false
+      val first = dataList.firstOrNull()?.jsonObject ?: return false
+      val streamInfoList = first["gameStreamInfoList"]?.jsonArray ?: return false
+      return streamInfoList.isNotEmpty()
+    }
+
+    val htmlDesktop = fetchHtml(useMobileHeaders = false)
+    if (hasCandidates(htmlDesktop)) return true
+    val htmlMobile = fetchHtml(useMobileHeaders = true)
+    return hasCandidates(htmlMobile)
+  }
+
   private fun generateWebAntiCode(streamName: String, antiCode: String): String {
     val sanitized = antiCode.replace("&amp;", "&")
     val params = parseQuery(sanitized)
