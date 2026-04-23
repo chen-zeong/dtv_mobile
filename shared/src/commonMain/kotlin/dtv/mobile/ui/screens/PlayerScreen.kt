@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.height
@@ -51,6 +52,7 @@ import androidx.compose.runtime.key
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
@@ -308,6 +310,7 @@ fun PlayerScreen(
             ScrollingDanmakuOverlay(
               resetKey = streamer?.roomId,
               messages = danmakuMessages,
+              showUser = false,
               modifier = Modifier
                 .fillMaxSize()
                 .padding(10.dp),
@@ -315,6 +318,7 @@ fun PlayerScreen(
           } else {
             DanmakuOverlay(
               messages = danmakuMessages,
+              showUser = !fullscreen,
               modifier = Modifier
                 .fillMaxSize()
                 .padding(10.dp),
@@ -510,21 +514,27 @@ private fun ControlFab(
 @Composable
 private fun DanmakuOverlay(
   messages: List<DanmakuMessage>,
+  showUser: Boolean,
   modifier: Modifier = Modifier,
 ) {
-  Column(
-    modifier = modifier,
-    verticalArrangement = Arrangement.Bottom,
+  Box(
+    modifier = modifier
+      .fillMaxHeight(0.33f)
+      .clipToBounds(),
+    contentAlignment = Alignment.BottomStart,
   ) {
-    messages.takeLast(14).forEach { msg ->
-      DanmakuBubble(
-        user = msg.user,
-        content = msg.content,
-        modifier = Modifier.fillMaxWidth(0.92f),
-        maxLines = 1,
-        compact = true,
-      )
-      SpacerLine(6.dp)
+    Column(verticalArrangement = Arrangement.Bottom) {
+      messages.takeLast(10).forEach { msg ->
+        DanmakuBubble(
+          user = msg.user,
+          content = msg.content,
+          showUser = showUser,
+          modifier = Modifier.fillMaxWidth(0.92f),
+          maxLines = 1,
+          compact = true,
+        )
+        SpacerLine(6.dp)
+      }
     }
   }
 }
@@ -533,6 +543,7 @@ private fun DanmakuOverlay(
 private fun DanmakuBubble(
   user: String,
   content: String,
+  showUser: Boolean = true,
   modifier: Modifier = Modifier,
   maxLines: Int = 1,
   compact: Boolean = false,
@@ -541,15 +552,17 @@ private fun DanmakuBubble(
   val displayContent = content.trim()
 
   val text = buildAnnotatedString {
-    withStyle(
-      SpanStyle(
-        color = Color(0xFFFFE082),
-        fontWeight = FontWeight.SemiBold,
-      ),
-    ) {
-      append(displayUser)
+    if (showUser) {
+      withStyle(
+        SpanStyle(
+          color = Color(0xFFFFE082),
+          fontWeight = FontWeight.SemiBold,
+        ),
+      ) {
+        append(displayUser)
+      }
+      append("  ")
     }
-    append("  ")
     append(displayContent)
   }
 
@@ -659,6 +672,7 @@ private fun HubDanmakuRow(
 private fun ScrollingDanmakuOverlay(
   resetKey: Any?,
   messages: List<DanmakuMessage>,
+  showUser: Boolean,
   modifier: Modifier = Modifier,
 ) {
   data class Active(
@@ -702,17 +716,20 @@ private fun ScrollingDanmakuOverlay(
   BoxWithConstraints(modifier = modifier) {
     val widthPx = constraints.maxWidth.toFloat().coerceAtLeast(1f)
     val heightPx = constraints.maxHeight.toFloat().coerceAtLeast(1f)
-    val topPaddingPx = heightPx * 0.18f
-    val trackHeightPx = (heightPx * 0.52f) / trackCount
+    val regionTopPx = heightPx * 0.04f
+    val regionHeightPx = heightPx * 0.33f
+    val usableHeightPx = (regionHeightPx - regionTopPx).coerceAtLeast(1f)
+    val trackHeightPx = usableHeightPx / trackCount
 
     active.forEach { item ->
       key(item.id) {
         ScrollingDanmakuItem(
           user = item.user,
           content = item.content,
+          showUser = showUser,
           startX = widthPx,
           endX = -widthPx,
-          y = topPaddingPx + trackHeightPx * item.track,
+          y = regionTopPx + trackHeightPx * item.track,
           onFinished = { active.remove(item) },
         )
       }
@@ -724,6 +741,7 @@ private fun ScrollingDanmakuOverlay(
 private fun ScrollingDanmakuItem(
   user: String,
   content: String,
+  showUser: Boolean,
   startX: Float,
   endX: Float,
   y: Float,
@@ -747,6 +765,7 @@ private fun ScrollingDanmakuItem(
     DanmakuBubble(
       user = user,
       content = content,
+      showUser = showUser,
       maxLines = 1,
       compact = true,
     )

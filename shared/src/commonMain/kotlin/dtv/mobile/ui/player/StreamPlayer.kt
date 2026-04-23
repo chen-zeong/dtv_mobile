@@ -7,6 +7,7 @@ import androidx.compose.ui.Modifier
 expect fun StreamPlayer(
   url: String,
   fullscreen: Boolean = false,
+  liveMode: Boolean = true,
   onVideoAspectRatioChanged: (Float?) -> Unit = {},
   onError: (String) -> Unit = {},
   modifier: Modifier = Modifier,

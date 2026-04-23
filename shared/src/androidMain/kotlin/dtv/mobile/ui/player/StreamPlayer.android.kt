@@ -24,6 +24,7 @@ import android.view.View
 actual fun StreamPlayer(
   url: String,
   fullscreen: Boolean,
+  liveMode: Boolean,
   onVideoAspectRatioChanged: (Float?) -> Unit,
   onError: (String) -> Unit,
   modifier: Modifier,
@@ -140,7 +141,7 @@ actual fun StreamPlayer(
         resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
         this.player = player
 
-        applyControls(fullscreen = fullscreen)
+        applyControls(fullscreen = fullscreen, liveMode = liveMode)
       }
     },
     update = { view ->
@@ -149,19 +150,21 @@ actual fun StreamPlayer(
       view.controllerAutoShow = true
       view.player = player
 
-      view.applyControls(fullscreen = fullscreen)
+      view.applyControls(fullscreen = fullscreen, liveMode = liveMode)
     },
   )
 }
 
-private fun PlayerView.applyControls(fullscreen: Boolean) {
-  // In fullscreen: only keep play/pause. Hide seek/time UI and skip buttons.
-  setShowPreviousButton(!fullscreen)
-  setShowNextButton(!fullscreen)
-  setShowRewindButton(!fullscreen)
-  setShowFastForwardButton(!fullscreen)
+private fun PlayerView.applyControls(fullscreen: Boolean, liveMode: Boolean) {
+  // Live streams: hide seek/time UI and skip buttons (no progress bar or +/-15s hints).
+  val hideSeekUi = fullscreen || liveMode
 
-  val visibility = if (fullscreen) View.GONE else View.VISIBLE
+  setShowPreviousButton(!hideSeekUi)
+  setShowNextButton(!hideSeekUi)
+  setShowRewindButton(!hideSeekUi)
+  setShowFastForwardButton(!hideSeekUi)
+
+  val visibility = if (hideSeekUi) View.GONE else View.VISIBLE
 
   findViewById<View?>(androidx.media3.ui.R.id.exo_progress)?.visibility = visibility
   findViewById<View?>(androidx.media3.ui.R.id.exo_position)?.visibility = visibility
