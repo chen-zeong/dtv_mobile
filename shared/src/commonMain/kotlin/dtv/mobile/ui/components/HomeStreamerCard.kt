@@ -122,7 +122,7 @@ fun HomeStreamerCard(
           Text(
             text = formatViewerCountWanIfNeeded(streamer.viewerText),
             style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Black),
-            color = accent,
+            color = Color.White,
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,

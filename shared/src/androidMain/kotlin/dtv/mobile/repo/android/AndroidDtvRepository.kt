@@ -241,14 +241,29 @@ class AndroidDtvRepository(
         ?: roomObj["avatarMid"].stringValueOrNull()
         ?: roomObj["avatar"].stringValueOrNull(),
     )
-    val cover = normalizeHttpUrl(
-      roomObj["room_src"].stringValueOrNull()
-        ?: roomObj["roomSrc"].stringValueOrNull()
+
+    fun normalizeDouyuCover(raw: String?): String? {
+      val v = raw?.trim().orEmpty()
+      if (v.isBlank()) return null
+      return when {
+        v.startsWith("http://") || v.startsWith("https://") -> v
+        v.startsWith("//") -> "https:$v"
+        v.startsWith("/") -> "https://rpic.douyucdn.cn$v"
+        else -> "https://rpic.douyucdn.cn/$v"
+      }
+    }
+
+    // `room_src` is often a relative path like `asrpic/...` which won't render if used directly.
+    // Prefer absolute keys first (`coverSrc` / `room_pic`), then normalize `room_src` as rpic CDN path.
+    val cover = normalizeDouyuCover(
+      roomObj["coverSrc"].stringValueOrNull()
         ?: roomObj["room_pic"].stringValueOrNull()
         ?: roomObj["roomPic"].stringValueOrNull()
+        ?: roomObj["room_src"].stringValueOrNull()
+        ?: roomObj["roomSrc"].stringValueOrNull()
         ?: roomObj["room_thumb"].stringValueOrNull()
         ?: roomObj["roomThumb"].stringValueOrNull(),
-    )
+    )?.let(::normalizeHttpUrl)
 
     val showStatus = roomObj["show_status"]?.jsonPrimitive?.intOrNull
     val videoLoop = roomObj["videoLoop"]?.jsonPrimitive?.intOrNull
@@ -271,10 +286,17 @@ class AndroidDtvRepository(
         ?: roomObj["online"].stringValueOrNull()
         ?: roomObj["hn"].stringValueOrNull()
     )?.trim()?.ifBlank { null }
+
+    val hot = roomObj["room_biz_all"]?.jsonObject?.get("hot").stringValueOrNull()?.trim()?.ifBlank { null }
+    val viewerText = when {
+      online.isNullOrBlank() -> hot
+      online == "0" && !hot.isNullOrBlank() -> hot
+      else -> online
+    }
     return FollowInfo(
       name = name,
       title = title,
-      viewerText = online?.takeIf { it.isNotBlank() },
+      viewerText = viewerText?.takeIf { it.isNotBlank() },
       avatarUrl = avatar,
       coverUrl = cover,
       isLive = isLive,
