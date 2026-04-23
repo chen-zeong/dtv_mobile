@@ -102,13 +102,16 @@ fun PlayerScreen(
   var error by remember(streamer?.roomId) { mutableStateOf<String?>(null) }
   var loading by remember(streamer?.roomId) { mutableStateOf(false) }
   var playInfo by remember(streamer?.roomId) { mutableStateOf<DouyuPlayInfo?>(null) }
-  var selectedQuality by remember(streamer?.roomId) { mutableStateOf<String?>(null) }
-  var selectedCdn by remember(streamer?.roomId) { mutableStateOf<String?>(null) }
+  var selectedDouyuQuality by remember(streamer?.roomId) { mutableStateOf<String?>(null) }
+  var selectedDouyuCdn by remember(streamer?.roomId) { mutableStateOf<String?>(null) }
+  var selectedDouyinQuality by remember(streamer?.roomId) { mutableStateOf<String?>(null) }
+  var selectedBilibiliQn by remember(streamer?.roomId) { mutableStateOf<Int?>(null) }
   var showSettings by remember(streamer?.roomId) { mutableStateOf(false) }
 
   var danmakuEnabled by remember(streamer?.roomId) { mutableStateOf(true) }
   var danmakuMessages by remember(streamer?.roomId) { mutableStateOf<List<DanmakuMessage>>(emptyList()) }
   var danmakuMax by remember { mutableIntStateOf(200) }
+  var danmakuAreaFraction by remember(streamer?.roomId) { mutableStateOf(1f / 3f) }
   var videoAspectRatio by remember(streamer?.roomId) { mutableStateOf<Float?>(null) }
   var fullscreen by remember(streamer?.roomId) { mutableStateOf(false) }
 
@@ -130,8 +133,10 @@ fun PlayerScreen(
     error = null
     url = null
     playInfo = null
-    selectedQuality = null
-    selectedCdn = null
+    selectedDouyuQuality = null
+    selectedDouyuCdn = null
+    selectedDouyinQuality = null
+    selectedBilibiliQn = null
     when (s.platform) {
       Platform.Douyu -> {
         runCatching { appState.repo.fetchDouyuPlayInfo(roomId = s.roomId) }
@@ -147,12 +152,12 @@ fun PlayerScreen(
           .onFailure { error = it.message ?: "获取虎牙播放地址失败" }
       }
       Platform.Douyin -> {
-        runCatching { appState.repo.resolveDouyinStreamUrl(webRid = s.roomId) }
+        runCatching { appState.repo.resolveDouyinStreamUrl(webRid = s.roomId, desiredQuality = selectedDouyinQuality) }
           .onSuccess { url = it }
           .onFailure { error = it.message ?: "获取抖音播放地址失败" }
       }
       Platform.Bilibili -> {
-        runCatching { appState.repo.resolveBilibiliStreamUrl(roomId = s.roomId) }
+        runCatching { appState.repo.resolveBilibiliStreamUrl(roomId = s.roomId, qn = selectedBilibiliQn) }
           .onSuccess { url = it }
           .onFailure { error = it.message ?: "获取B站播放地址失败" }
       }
@@ -191,13 +196,13 @@ fun PlayerScreen(
         Platform.Douyu -> runCatching {
           appState.repo.resolveDouyuStreamUrl(
             roomId = s.roomId,
-            quality = selectedQuality,
-            cdn = selectedCdn,
+            quality = selectedDouyuQuality,
+            cdn = selectedDouyuCdn,
           )
         }
         Platform.Huya -> runCatching { appState.repo.resolveHuyaStreamUrl(roomId = s.roomId) }
-        Platform.Douyin -> runCatching { appState.repo.resolveDouyinStreamUrl(webRid = s.roomId) }
-        Platform.Bilibili -> runCatching { appState.repo.resolveBilibiliStreamUrl(roomId = s.roomId) }
+        Platform.Douyin -> runCatching { appState.repo.resolveDouyinStreamUrl(webRid = s.roomId, desiredQuality = selectedDouyinQuality) }
+        Platform.Bilibili -> runCatching { appState.repo.resolveBilibiliStreamUrl(roomId = s.roomId, qn = selectedBilibiliQn) }
         else -> Result.failure(IllegalStateException("暂不支持的平台：${s.platform.title}"))
       }
       result
@@ -217,20 +222,59 @@ fun PlayerScreen(
       ) {
         Text("播放设置", style = MaterialTheme.typography.titleMedium)
 
-        if (streamer.platform == Platform.Douyu) {
-          Text("清晰度", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f))
-          RowWrap(
-            items = listOf("自动" to null) + (playInfo?.variants.orEmpty().map { it.name to it.name }),
-            selected = selectedQuality,
-            onSelect = { selectedQuality = it },
-          )
+        Text("画质", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f))
+        when (streamer.platform) {
+          Platform.Douyu -> {
+            RowWrap(
+              items = listOf("自动" to null) + (playInfo?.variants.orEmpty().map { it.name to it.name }),
+              selected = selectedDouyuQuality,
+              onSelect = { selectedDouyuQuality = it },
+            )
+          }
+          Platform.Douyin -> {
+            RowWrap(
+              items = listOf(
+                "自动" to null,
+                "原画" to "ORIGIN",
+                "超清" to "FULL_HD1",
+                "高清" to "HD1",
+                "标清" to "SD1",
+              ),
+              selected = selectedDouyinQuality,
+              onSelect = { selectedDouyinQuality = it },
+            )
+          }
+          Platform.Bilibili -> {
+            RowWrapInt(
+              items = listOf(
+                "自动" to null,
+                "原画" to 10000,
+                "蓝光" to 400,
+                "超清" to 250,
+                "高清" to 150,
+                "流畅" to 80,
+              ),
+              selected = selectedBilibiliQn,
+              onSelect = { selectedBilibiliQn = it },
+            )
+          }
+          else -> {
+            Text("当前平台暂不支持切换画质", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f))
+          }
+        }
 
-          Text("线路", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f))
-          RowWrap(
-            items = listOf("自动" to null) + (playInfo?.cdns.orEmpty().map { it to it }),
-            selected = selectedCdn,
-            onSelect = { selectedCdn = it },
-          )
+        Text("线路", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f))
+        when (streamer.platform) {
+          Platform.Douyu -> {
+            RowWrap(
+              items = listOf("自动" to null) + (playInfo?.cdns.orEmpty().map { it to it }),
+              selected = selectedDouyuCdn,
+              onSelect = { selectedDouyuCdn = it },
+            )
+          }
+          else -> {
+            Text("当前平台暂不支持切换线路", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f))
+          }
         }
 
         Text("弹幕", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f))
@@ -240,7 +284,19 @@ fun PlayerScreen(
           onSelect = { danmakuEnabled = it == "on" },
         )
 
-        TextButton(onClick = { showSettings = false; reloadUrl() }, modifier = Modifier.fillMaxWidth()) { Text("重载") }
+        Text("弹幕位置", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f))
+        RowWrapFloat(
+          items = listOf(
+            "上方1/4" to 0.25f,
+            "上方1/3" to (1f / 3f),
+            "上方1/2" to 0.5f,
+            "上方3/4" to 0.75f,
+          ),
+          selected = danmakuAreaFraction,
+          onSelect = { danmakuAreaFraction = it },
+        )
+
+        TextButton(onClick = { showSettings = false; reloadUrl() }, modifier = Modifier.fillMaxWidth()) { Text("应用并重载") }
         SpacerLine()
       }
     }
@@ -321,6 +377,7 @@ fun PlayerScreen(
               resetKey = streamer?.roomId,
               messages = danmakuMessages,
               showUser = false,
+              areaFraction = danmakuAreaFraction,
               modifier = Modifier
                 .fillMaxSize()
                 .padding(10.dp),
@@ -329,6 +386,8 @@ fun PlayerScreen(
             DanmakuOverlay(
               messages = danmakuMessages,
               showUser = !fullscreen,
+              areaFraction = danmakuAreaFraction,
+              transparentBackground = false,
               modifier = Modifier
                 .fillMaxSize()
                 .padding(10.dp),
@@ -336,17 +395,14 @@ fun PlayerScreen(
           }
         }
 
-        PlayerControlBar(
-          streamer = streamer,
+        PlayerSideControlsOverlay(
           fullscreen = fullscreen,
           onToggleFullscreen = { fullscreen = !fullscreen },
           onOpenSettings = { showSettings = true },
           onReload = { reloadUrl() },
-          danmakuEnabled = danmakuEnabled,
-          onToggleDanmaku = { danmakuEnabled = !danmakuEnabled },
           modifier = Modifier
-            .align(Alignment.BottomCenter)
-            .padding(horizontal = 16.dp, vertical = 14.dp),
+            .align(Alignment.CenterEnd)
+            .padding(end = 16.dp),
         )
 
       }
@@ -478,69 +534,44 @@ private fun PlayerHeader(
 }
 
 @Composable
-private fun PlayerControlBar(
-  streamer: Streamer?,
+private fun PlayerSideControlsOverlay(
   fullscreen: Boolean,
-  danmakuEnabled: Boolean,
   onToggleFullscreen: () -> Unit,
   onOpenSettings: () -> Unit,
   onReload: () -> Unit,
-  onToggleDanmaku: () -> Unit,
   modifier: Modifier = Modifier,
 ) {
-  val bg = Color.Black.copy(alpha = 0.36f)
-  val border = Color.White.copy(alpha = 0.12f)
-
-  Surface(
+  Column(
     modifier = modifier,
-    shape = RoundedCornerShape(999.dp),
-    color = bg,
-    border = BorderStroke(1.dp, border),
+    verticalArrangement = Arrangement.spacedBy(14.dp),
+    horizontalAlignment = Alignment.CenterHorizontally,
+  ) {
+    ControlFab(icon = Icons.Default.Settings, onClick = onOpenSettings)
+    ControlFab(icon = Icons.Default.Refresh, onClick = onReload)
+    ControlFab(icon = Icons.Default.FullscreenExit.takeIf { fullscreen } ?: Icons.Default.Fullscreen, onClick = onToggleFullscreen)
+  }
+}
+
+@Composable
+private fun ControlFab(
+  icon: androidx.compose.ui.graphics.vector.ImageVector,
+  onClick: () -> Unit,
+  modifier: Modifier = Modifier,
+) {
+  Surface(
+    modifier = modifier.size(48.dp).clip(CircleShape).clickable(onClick = onClick),
+    shape = CircleShape,
+    color = Color.White.copy(alpha = 0.10f),
+    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.12f)),
     tonalElevation = 0.dp,
     shadowElevation = 0.dp,
   ) {
-    Row(
-      modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-      verticalAlignment = Alignment.CenterVertically,
-      horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-      Text(
-        text = streamer?.platform?.title.orEmpty(),
-        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Black),
-        color = Color.White.copy(alpha = 0.88f),
-        maxLines = 1,
-        overflow = TextOverflow.Ellipsis,
+    Box(contentAlignment = Alignment.Center) {
+      Icon(
+        imageVector = icon,
+        contentDescription = null,
+        tint = Color.White.copy(alpha = 0.92f),
       )
-
-      Surface(
-        shape = RoundedCornerShape(999.dp),
-        color = if (danmakuEnabled) Color.White.copy(alpha = 0.12f) else Color.Transparent,
-        border = BorderStroke(1.dp, Color.White.copy(alpha = if (danmakuEnabled) 0.14f else 0.10f)),
-        tonalElevation = 0.dp,
-        shadowElevation = 0.dp,
-        modifier = Modifier.clickable(onClick = onToggleDanmaku),
-      ) {
-        Text(
-          text = if (danmakuEnabled) "弹幕开" else "弹幕关",
-          style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-          color = Color.White.copy(alpha = 0.92f),
-          modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-        )
-      }
-
-      IconButton(onClick = onOpenSettings) {
-        Icon(imageVector = Icons.Default.Settings, contentDescription = "设置", tint = Color.White.copy(alpha = 0.92f))
-      }
-      IconButton(onClick = onReload) {
-        Icon(imageVector = Icons.Default.Refresh, contentDescription = "重载", tint = Color.White.copy(alpha = 0.92f))
-      }
-      IconButton(onClick = onToggleFullscreen) {
-        Icon(
-          imageVector = Icons.Default.FullscreenExit.takeIf { fullscreen } ?: Icons.Default.Fullscreen,
-          contentDescription = if (fullscreen) "退出全屏" else "全屏",
-          tint = Color.White.copy(alpha = 0.92f),
-        )
-      }
     }
   }
 }
@@ -549,11 +580,13 @@ private fun PlayerControlBar(
 private fun DanmakuOverlay(
   messages: List<DanmakuMessage>,
   showUser: Boolean,
+  areaFraction: Float,
+  transparentBackground: Boolean,
   modifier: Modifier = Modifier,
 ) {
   Box(
     modifier = modifier
-      .fillMaxHeight(0.33f)
+      .fillMaxHeight(areaFraction)
       .clipToBounds(),
     contentAlignment = Alignment.BottomStart,
   ) {
@@ -563,6 +596,7 @@ private fun DanmakuOverlay(
           user = msg.user,
           content = msg.content,
           showUser = showUser,
+          transparentBackground = transparentBackground,
           modifier = Modifier.fillMaxWidth(0.92f),
           maxLines = 1,
           compact = true,
@@ -578,6 +612,7 @@ private fun DanmakuBubble(
   user: String,
   content: String,
   showUser: Boolean = true,
+  transparentBackground: Boolean = false,
   modifier: Modifier = Modifier,
   maxLines: Int = 1,
   compact: Boolean = false,
@@ -606,8 +641,8 @@ private fun DanmakuBubble(
   Surface(
     modifier = modifier,
     shape = RoundedCornerShape(14.dp),
-    color = Color.Black.copy(alpha = 0.26f),
-    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.14f)),
+    color = if (transparentBackground) Color.Transparent else Color.Black.copy(alpha = 0.26f),
+    border = if (transparentBackground) null else BorderStroke(1.dp, Color.White.copy(alpha = 0.14f)),
     tonalElevation = 0.dp,
     shadowElevation = 1.dp,
   ) {
@@ -707,6 +742,7 @@ private fun ScrollingDanmakuOverlay(
   resetKey: Any?,
   messages: List<DanmakuMessage>,
   showUser: Boolean,
+  areaFraction: Float,
   modifier: Modifier = Modifier,
 ) {
   data class Active(
@@ -751,7 +787,7 @@ private fun ScrollingDanmakuOverlay(
     val widthPx = constraints.maxWidth.toFloat().coerceAtLeast(1f)
     val heightPx = constraints.maxHeight.toFloat().coerceAtLeast(1f)
     val regionTopPx = heightPx * 0.04f
-    val regionHeightPx = heightPx * 0.33f
+    val regionHeightPx = (heightPx * areaFraction).coerceAtLeast(1f)
     val usableHeightPx = (regionHeightPx - regionTopPx).coerceAtLeast(1f)
     val trackHeightPx = usableHeightPx / trackCount
 
@@ -761,6 +797,7 @@ private fun ScrollingDanmakuOverlay(
           user = item.user,
           content = item.content,
           showUser = showUser,
+          transparentBackground = true,
           startX = widthPx,
           endX = -widthPx,
           y = regionTopPx + trackHeightPx * item.track,
@@ -776,6 +813,7 @@ private fun ScrollingDanmakuItem(
   user: String,
   content: String,
   showUser: Boolean,
+  transparentBackground: Boolean,
   startX: Float,
   endX: Float,
   y: Float,
@@ -800,6 +838,7 @@ private fun ScrollingDanmakuItem(
       user = user,
       content = content,
       showUser = showUser,
+      transparentBackground = transparentBackground,
       maxLines = 1,
       compact = true,
     )
@@ -820,6 +859,42 @@ private fun RowWrap(
   LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
     items(items, key = { it.first }) { (label, value) ->
       val isSelected = value == selected || (value == null && selected == null)
+      FilterChip(
+        selected = isSelected,
+        onClick = { onSelect(value) },
+        label = { Text(label) },
+      )
+    }
+  }
+}
+
+@Composable
+private fun RowWrapInt(
+  items: List<Pair<String, Int?>>,
+  selected: Int?,
+  onSelect: (Int?) -> Unit,
+) {
+  LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    items(items, key = { it.first }) { (label, value) ->
+      val isSelected = value == selected || (value == null && selected == null)
+      FilterChip(
+        selected = isSelected,
+        onClick = { onSelect(value) },
+        label = { Text(label) },
+      )
+    }
+  }
+}
+
+@Composable
+private fun RowWrapFloat(
+  items: List<Pair<String, Float>>,
+  selected: Float,
+  onSelect: (Float) -> Unit,
+) {
+  LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    items(items, key = { it.first }) { (label, value) ->
+      val isSelected = (value - selected).let { if (it < 0f) -it else it } < 0.0001f
       FilterChip(
         selected = isSelected,
         onClick = { onSelect(value) },

@@ -628,11 +628,25 @@ class AndroidDtvRepository(
       room.roomId?.takeIf { it.isNotBlank() }?.let { roomId ->
         douyinDanmakuClient.prime(webRid = webRid, roomId = roomId, msToken = room.msToken)
       }
-      val hls = room.hlsPullUrlMap["ORIGIN"] ?: room.hlsPullUrlMap.values.firstOrNull()
-      val flv = room.flvPullUrlMap["ORIGIN"] ?: room.flvPullUrlMap.values.firstOrNull()
+      val q = desiredQuality?.trim()?.takeIf { it.isNotBlank() }
+      val hls = when {
+        q == null -> null
+        room.hlsPullUrlMap.containsKey(q) -> room.hlsPullUrlMap[q]
+        room.hlsPullUrlMap.containsKey(q.uppercase()) -> room.hlsPullUrlMap[q.uppercase()]
+        else -> null
+      }
+      val flv = when {
+        q == null -> null
+        room.flvPullUrlMap.containsKey(q) -> room.flvPullUrlMap[q]
+        room.flvPullUrlMap.containsKey(q.uppercase()) -> room.flvPullUrlMap[q.uppercase()]
+        else -> null
+      }
+
+      val hlsFallback = room.hlsPullUrlMap["ORIGIN"] ?: room.hlsPullUrlMap.values.firstOrNull()
+      val flvFallback = room.flvPullUrlMap["ORIGIN"] ?: room.flvPullUrlMap.values.firstOrNull()
       // Mobile reality: some Douyin FLV streams may be H.265-in-FLV which Media3/ExoPlayer may not render
       // (audio-only on many devices). Prefer HLS first; fallback to FLV.
-      (hls ?: flv) ?: error("未找到抖音播放地址")
+      (hls ?: hlsFallback ?: flv ?: flvFallback) ?: error("未找到抖音播放地址")
     }
       .onFailure { AppLog.e("DTV-Douyin", "resolve stream url failed webRid=$webRid", it) }
       .getOrThrow()
