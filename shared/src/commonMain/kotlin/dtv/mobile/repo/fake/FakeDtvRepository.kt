@@ -162,6 +162,8 @@ class FakeDtvRepository : DtvRepository {
 
   override suspend fun getBilibiliCookie(): String? = null
 
+  override suspend fun mergeBilibiliCookie(cookieHeader: String) {}
+
   override suspend fun clearBilibiliCookie() {}
 
   private fun fakeRooms(platform: Platform, start: Int, count: Int): List<Streamer> {

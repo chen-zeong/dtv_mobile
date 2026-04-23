@@ -40,17 +40,15 @@ import dtv.mobile.model.Streamer
 import dtv.mobile.model.Platform
 import dtv.mobile.repo.BilibiliCate1
 import dtv.mobile.repo.BilibiliCate2
-import dtv.mobile.repo.BilibiliQrStatus
 import dtv.mobile.repo.PagedResult
 import dtv.mobile.state.AppState
 import dtv.mobile.state.SubscribedPartition
 import dtv.mobile.ui.components.CategoryPill
+import dtv.mobile.ui.components.BilibiliWebLoginSheet
 import dtv.mobile.ui.components.LazyGridLoadMoreEffect
 import dtv.mobile.ui.components.PullToRefreshBox
-import dtv.mobile.ui.components.QrCodeImage
 import dtv.mobile.ui.components.StreamerCard
 import dtv.mobile.ui.components.StreamerCardSkeleton
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private const val PAGE_SIZE = 20
@@ -161,79 +159,15 @@ fun BilibiliHomeScreen(
   }
 
   if (showLoginSheet) {
-    var qrUrl by remember { mutableStateOf<String?>(null) }
-    var qrKey by remember { mutableStateOf<String?>(null) }
-    var qrStatus by remember { mutableStateOf(BilibiliQrStatus.Waiting) }
-    var qrMessage by remember { mutableStateOf<String?>(null) }
-    var polling by remember { mutableStateOf(false) }
-    var regen by remember { mutableIntStateOf(0) }
-
-    LaunchedEffect(regen) {
-      polling = false
-      qrUrl = null
-      qrKey = null
-      qrStatus = BilibiliQrStatus.Waiting
-      qrMessage = "正在生成二维码…"
-      polling = true
-      qrStatus = BilibiliQrStatus.Waiting
-      runCatching { appState.repo.generateBilibiliQrCode() }
-        .onSuccess {
-          qrUrl = it.url
-          qrKey = it.qrcodeKey
-          qrMessage = "请使用 B站 App 扫码登录"
+    BilibiliWebLoginSheet(
+      onDismissRequest = { showLoginSheet = false },
+      onCookieCaptured = { cookieHeader ->
+        scope.launch {
+          appState.repo.mergeBilibiliCookie(cookieHeader)
+          loggedIn = !appState.repo.getBilibiliCookie().isNullOrBlank()
         }
-        .onFailure { qrMessage = it.message ?: "二维码生成失败" }
-    }
-
-    LaunchedEffect(qrKey) {
-      val key = qrKey ?: return@LaunchedEffect
-      while (polling) {
-        val r = runCatching { appState.repo.pollBilibiliQrCode(key) }.getOrNull()
-        if (r != null) {
-          qrStatus = r.status
-          qrMessage = r.message
-          if (r.status == BilibiliQrStatus.Confirmed) {
-            loggedIn = !appState.repo.getBilibiliCookie().isNullOrBlank()
-            break
-          }
-          if (r.status == BilibiliQrStatus.Expired || r.status == BilibiliQrStatus.Failed) break
-        }
-        delay(1600)
-      }
-      polling = false
-    }
-
-    ModalBottomSheet(
-      onDismissRequest = { polling = false; showLoginSheet = false },
-    ) {
-      Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text("B站扫码登录", style = MaterialTheme.typography.titleMedium)
-        if (!qrUrl.isNullOrBlank()) {
-          QrCodeImage(data = qrUrl!!, modifier = Modifier.fillMaxWidth().height(260.dp))
-        }
-        Text(
-          text = when (qrStatus) {
-            BilibiliQrStatus.Waiting -> qrMessage ?: "未扫码"
-            BilibiliQrStatus.Scanned -> qrMessage ?: "已扫码，等待确认"
-            BilibiliQrStatus.Confirmed -> "登录成功"
-            BilibiliQrStatus.Expired -> "二维码已过期，请重新生成"
-            BilibiliQrStatus.Failed -> qrMessage ?: "登录失败"
-          },
-          style = MaterialTheme.typography.bodyMedium,
-          color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f),
-        )
-
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-          TextButton(onClick = { polling = false; showLoginSheet = false }) { Text("关闭") }
-          TextButton(
-            onClick = {
-              regen += 1
-            },
-          ) { Text("重新生成") }
-        }
-        Spacer(modifier = Modifier.height(18.dp))
-      }
-    }
+      },
+    )
   }
 
   if (showCate2Sheet) {

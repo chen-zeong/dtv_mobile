@@ -720,6 +720,10 @@ class AndroidDtvRepository(
     return bilibiliCookieStore.getCookie()
   }
 
+  override suspend fun mergeBilibiliCookie(cookieHeader: String) {
+    bilibiliCookieStore.mergeFromCookieHeader(cookieHeader)
+  }
+
   override suspend fun clearBilibiliCookie() {
     bilibiliCookieStore.clear()
   }

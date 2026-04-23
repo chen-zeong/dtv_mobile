@@ -131,5 +131,7 @@ interface DtvRepository {
 
   suspend fun getBilibiliCookie(): String?
 
+  suspend fun mergeBilibiliCookie(cookieHeader: String)
+
   suspend fun clearBilibiliCookie()
 }
