@@ -51,12 +51,19 @@ class BilibiliDanmakuClientAndroid(
       22, 25, 54, 21, 56, 59, 6, 63, 57, 62, 11, 36, 20, 34, 44, 52,
     )
 
-    @Volatile private var cachedWbiKeys: Pair<String, String>? = null
+    private data class NavInfo(
+      val imgKey: String,
+      val subKey: String,
+      val mid: Long?,
+    )
+
+    @Volatile private var cachedNavInfo: NavInfo? = null
     @Volatile private var cachedWbiAtMs: Long = 0L
   }
 
   private data class DanmuInfo(
     val roomId: Int,
+    val uid: Long,
     val token: String,
     val endpoints: List<Endpoint>,
   )
@@ -109,9 +116,9 @@ class BilibiliDanmakuClientAndroid(
     return sb.toString()
   }
 
-  private suspend fun getWbiKeys(): Pair<String, String> {
+  private suspend fun getNavInfo(): NavInfo {
     val now = System.currentTimeMillis()
-    val cached = cachedWbiKeys
+    val cached = cachedNavInfo
     if (cached != null && now - cachedWbiAtMs < 6 * 60 * 60 * 1000L) return cached
 
     val url = "https://api.bilibili.com/x/web-interface/nav"
@@ -126,20 +133,21 @@ class BilibiliDanmakuClientAndroid(
 
     val root = json.parseToJsonElement(text).jsonObject
     val data = root["data"]?.jsonObject ?: error("B站 nav data 为空")
+    val mid = data["mid"]?.jsonPrimitive?.content?.toLongOrNull()
     val wbi = data["wbi_img"]?.jsonObject ?: error("B站 nav wbi_img 为空")
     val imgUrl = wbi["img_url"]?.jsonPrimitive?.content?.trim().orEmpty()
     val subUrl = wbi["sub_url"]?.jsonPrimitive?.content?.trim().orEmpty()
     val imgKey = takeFilename(imgUrl) ?: error("B站 img_key 解析失败")
     val subKey = takeFilename(subUrl) ?: error("B站 sub_key 解析失败")
-    val pair = imgKey to subKey
+    val nav = NavInfo(imgKey = imgKey, subKey = subKey, mid = mid)
 
-    cachedWbiKeys = pair
+    cachedNavInfo = nav
     cachedWbiAtMs = now
-    return pair
+    return nav
   }
 
   private suspend fun signedWbiQuery(params: List<Pair<String, String>>): String {
-    val (imgKey, subKey) = getWbiKeys()
+    val (imgKey, subKey, _) = getNavInfo()
     val mixinKey = getMixinKey(imgKey + subKey)
     val wts = (System.currentTimeMillis() / 1000L).toString()
 
@@ -196,7 +204,8 @@ class BilibiliDanmakuClientAndroid(
     if (token.isBlank()) error("B站弹幕 token 为空")
 
     val resolvedEndpoints = endpoints.ifEmpty { listOf(Endpoint(host = "broadcastlv.chat.bilibili.com", wssPort = 443)) }
-    return DanmuInfo(roomId = realRoomId, token = token, endpoints = resolvedEndpoints)
+    val uid = runCatching { getNavInfo().mid }.getOrNull() ?: 0L
+    return DanmuInfo(roomId = realRoomId, uid = uid, token = token, endpoints = resolvedEndpoints)
   }
 
   private fun buildPacket(op: Int, body: ByteArray = ByteArray(0), ver: Int = 1, seq: Int = 1): ByteArray {
@@ -275,7 +284,7 @@ class BilibiliDanmakuClientAndroid(
 
       val authJson =
         // protover=1 requests plain JSON (avoid zlib/brotli differences across regions).
-        """{"uid":0,"roomid":${info.roomId},"protover":1,"platform":"web","type":2,"key":"${info.token}"}""".encodeToByteArray()
+        """{"uid":${info.uid.coerceAtLeast(0L)},"roomid":${info.roomId},"protover":1,"platform":"web","type":2,"key":"${info.token}"}""".encodeToByteArray()
       val authPacket = buildPacket(op = 7, body = authJson, ver = 1, seq = 1)
       val heartbeatPacket = buildPacket(op = 2, body = ByteArray(0), ver = 1, seq = 1)
 
@@ -301,9 +310,6 @@ class BilibiliDanmakuClientAndroid(
             .addHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
             .addHeader("Referer", "https://live.bilibili.com/")
             .addHeader("Origin", "https://live.bilibili.com")
-            .apply {
-              if (cookieForWs.isNotEmpty()) addHeader("Cookie", cookieForWs)
-            }
             .build()
 
           val listener = object : WebSocketListener() {
