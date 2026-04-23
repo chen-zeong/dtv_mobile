@@ -81,6 +81,7 @@ import dtv.mobile.ui.system.PlatformBackHandler
 import dtv.mobile.util.normalizeHttpUrl
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.CancellationException
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -194,8 +195,13 @@ fun PlayerScreen(
     } ?: return@LaunchedEffect
 
     danmakuMessages = emptyList()
-    flow.collectLatest { msg ->
-      danmakuMessages = (danmakuMessages + msg).takeLast(danmakuMax)
+    try {
+      flow.collectLatest { msg ->
+        danmakuMessages = (danmakuMessages + msg).takeLast(danmakuMax)
+      }
+    } catch (t: Throwable) {
+      if (t is CancellationException) throw t
+      // Swallow network/parse errors to avoid crashing the player UI.
     }
   }
 

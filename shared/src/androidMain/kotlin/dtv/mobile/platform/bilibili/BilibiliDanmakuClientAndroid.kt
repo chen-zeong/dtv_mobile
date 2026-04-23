@@ -175,9 +175,13 @@ class BilibiliDanmakuClientAndroid(
     val realRoomId = data["roomid"]?.jsonPrimitive?.content?.toIntOrNull() ?: roomId.toIntOrNull() ?: 0
 
     val hostList = data["host_list"]?.jsonArray ?: JsonArray(emptyList())
-    val first = hostList.firstOrNull()?.jsonObject
-    val host = first?.get("host")?.jsonPrimitive?.content?.trim().orEmpty().ifBlank { "broadcastlv.chat.bilibili.com" }
-    val wssPort = first?.get("wss_port")?.jsonPrimitive?.content?.toIntOrNull() ?: 443
+    val preferred = hostList
+      .asSequence()
+      .mapNotNull { it.jsonObject }
+      .firstOrNull { it["wss_port"]?.jsonPrimitive?.content?.toIntOrNull() == 443 }
+      ?: hostList.firstOrNull()?.jsonObject
+    val host = preferred?.get("host")?.jsonPrimitive?.content?.trim().orEmpty().ifBlank { "broadcastlv.chat.bilibili.com" }
+    val wssPort = preferred?.get("wss_port")?.jsonPrimitive?.content?.toIntOrNull() ?: 443
     if (token.isBlank()) error("B站弹幕 token 为空")
 
     return DanmuInfo(roomId = realRoomId, token = token, host = host, wssPort = wssPort)
@@ -303,7 +307,8 @@ class BilibiliDanmakuClientAndroid(
 
         override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
           AppLog.e("DTV-Bilibili", "bilibili danmaku ws failure roomId=$roomId", t)
-          close(t)
+          // Do not propagate to the UI collector: danmaku failures should not crash the app.
+          close()
         }
 
         override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
