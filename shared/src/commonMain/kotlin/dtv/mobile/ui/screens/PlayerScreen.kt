@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
@@ -20,6 +21,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -391,25 +393,25 @@ fun PlayerScreen(
           }
 
           val overlayDanmaku = danmakuEnabled && danmakuMessages.isNotEmpty() && (fullscreen || isVerticalVideo)
-          if (overlayDanmaku) {
-            if (fullscreen && isHorizontalVideo) {
-              ScrollingDanmakuOverlay(
-                resetKey = streamer?.roomId,
-                messages = danmakuMessages,
-                showUser = false,
-                areaFraction = danmakuAreaFraction,
-                modifier = Modifier
-                  .fillMaxSize()
-                  .padding(10.dp),
-              )
-            } else {
-              DanmakuOverlay(
-                messages = danmakuMessages,
-                showUser = !fullscreen,
-                areaFraction = danmakuAreaFraction,
-                transparentBackground = false,
-                modifier = Modifier
-                  .fillMaxSize()
+        if (overlayDanmaku) {
+          if (fullscreen && isHorizontalVideo) {
+            ScrollingDanmakuOverlay(
+              resetKey = streamer?.roomId,
+              messages = danmakuMessages,
+              showUser = false,
+              areaFraction = danmakuAreaFraction,
+              modifier = Modifier
+                .fillMaxSize()
+                .padding(10.dp),
+            )
+          } else {
+            DanmakuOverlay(
+              messages = danmakuMessages,
+              showUser = !(fullscreen || isVerticalVideo),
+              areaFraction = danmakuAreaFraction,
+              transparentBackground = false,
+              modifier = Modifier
+                .fillMaxSize()
                   .padding(10.dp),
               )
             }
@@ -454,42 +456,47 @@ private fun PlayerHeader(
   overlay: Boolean = false,
 ) {
   val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
-  val headerBg = when {
-    overlay -> Color.Black.copy(alpha = 0.35f)
-    isDark -> Color.Black
-    else -> MaterialTheme.colorScheme.surface
-  }
+  val headerBg = if (isDark) Color.Black else MaterialTheme.colorScheme.surface
   val headerFg = if (isDark) Color.White else MaterialTheme.colorScheme.onSurface
   val mutedFg = if (isDark) Color(0xFF9CA3AF) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f)
   val liveDot = if (streamer?.isLive == true) MaterialTheme.colorScheme.primary else Color(0xFF9CA3AF)
-  val controlBg = if (isDark) Color.White.copy(alpha = 0.10f) else MaterialTheme.colorScheme.background
-  val controlBorder = if (isDark) Color.White.copy(alpha = 0.14f) else MaterialTheme.colorScheme.outline.copy(alpha = 0.30f)
+  val infoBg = if (overlay) Color.Black.copy(alpha = 0.30f) else headerBg
+  val infoBorder = if (overlay) Color.White.copy(alpha = 0.14f) else MaterialTheme.colorScheme.outline.copy(alpha = 0.30f)
+  val closeBorder = Color.White.copy(alpha = if (overlay || isDark) 0.16f else 0.10f)
 
-  Surface(
-    modifier = modifier,
-    color = headerBg,
-    tonalElevation = 0.dp,
-    shadowElevation = 0.dp,
+  Column(
+    modifier = modifier
+      .statusBarsPadding()
+      .padding(vertical = 10.dp),
+    verticalArrangement = Arrangement.spacedBy(0.dp),
   ) {
-    Column(
-      modifier = Modifier
-        .statusBarsPadding()
-        .padding(vertical = 10.dp),
-      verticalArrangement = Arrangement.spacedBy(0.dp),
+    Row(
+      modifier = Modifier.fillMaxWidth(),
+      verticalAlignment = Alignment.CenterVertically,
+      horizontalArrangement = Arrangement.SpaceBetween,
     ) {
-      Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween,
+      Surface(
+        modifier = Modifier
+          .padding(start = 12.dp)
+          .clip(RoundedCornerShape(18.dp)),
+        shape = RoundedCornerShape(18.dp),
+        color = infoBg,
+        border = BorderStroke(1.dp, infoBorder),
+        tonalElevation = 0.dp,
+        shadowElevation = 0.dp,
       ) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(
+          modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+          verticalAlignment = Alignment.CenterVertically,
+          horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
           val avatar = normalizeHttpUrl(streamer?.avatarUrl)
           Box(modifier = Modifier.size(44.dp)) {
             Box(
               modifier = Modifier
                 .matchParentSize()
                 .clip(CircleShape)
-                .background(if (isDark) Color.White.copy(alpha = 0.08f) else MaterialTheme.colorScheme.background),
+                .background(Color.White.copy(alpha = if (overlay || isDark) 0.10f else 0.06f)),
               contentAlignment = Alignment.Center,
             ) {
               if (avatar != null) {
@@ -497,7 +504,7 @@ private fun PlayerHeader(
               } else {
                 Text(
                   text = streamer?.name?.take(1).orEmpty(),
-                  color = headerFg.copy(alpha = 0.9f),
+                  color = Color.White.copy(alpha = 0.92f),
                   style = MaterialTheme.typography.titleSmall,
                 )
               }
@@ -511,7 +518,7 @@ private fun PlayerHeader(
                   .size(14.dp)
                   .clip(CircleShape)
                   .background(liveDot)
-                  .border(width = 2.dp, color = headerBg, shape = CircleShape),
+                  .border(width = 2.dp, color = infoBg, shape = CircleShape),
               )
             }
           }
@@ -520,21 +527,21 @@ private fun PlayerHeader(
             Text(
               text = streamer?.name.orEmpty(),
               style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Black),
-              color = headerFg,
+              color = Color.White.copy(alpha = 0.92f),
               maxLines = 1,
               overflow = TextOverflow.Ellipsis,
             )
             Text(
               text = streamer?.title?.trim().orEmpty(),
               style = MaterialTheme.typography.labelSmall,
-              color = mutedFg,
+              color = Color.White.copy(alpha = 0.72f),
               maxLines = 1,
               overflow = TextOverflow.Ellipsis,
             )
           }
 
           if (streamer != null) {
-            val iconTint = if (followed) Color(0xFFE11D48) else mutedFg
+            val iconTint = if (followed) Color(0xFFE11D48) else Color.White.copy(alpha = 0.75f)
             IconButton(onClick = { onToggleFollow(streamer) }) {
               Icon(
                 imageVector = if (followed) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
@@ -544,25 +551,41 @@ private fun PlayerHeader(
             }
           }
         }
-
-        Surface(
-          modifier = Modifier.size(40.dp).clip(CircleShape).clickable(onClick = onBack),
-          shape = CircleShape,
-          color = controlBg,
-          border = BorderStroke(1.dp, controlBorder),
-          tonalElevation = 0.dp,
-          shadowElevation = 0.dp,
-        ) {
-          Box(contentAlignment = Alignment.Center) {
-            Icon(
-              imageVector = Icons.Default.Close,
-              contentDescription = "关闭",
-              tint = headerFg.copy(alpha = 0.92f),
-            )
-          }
-        }
       }
 
+      Surface(
+        modifier = Modifier
+          .padding(end = 12.dp)
+          .size(40.dp)
+          .clip(CircleShape)
+          .clickable(onClick = onBack),
+        shape = CircleShape,
+        color = Color.Transparent,
+        border = BorderStroke(1.dp, closeBorder),
+        tonalElevation = 0.dp,
+        shadowElevation = 0.dp,
+      ) {
+        // Faux "frosted glass": translucent gradient + subtle border.
+        Box(
+          modifier = Modifier
+            .fillMaxSize()
+            .background(
+              Brush.linearGradient(
+                colors = listOf(
+                  Color.White.copy(alpha = 0.18f),
+                  Color.White.copy(alpha = 0.08f),
+                ),
+              ),
+            ),
+          contentAlignment = Alignment.Center,
+        ) {
+          Icon(
+            imageVector = Icons.Default.Close,
+            contentDescription = "关闭",
+            tint = Color.White.copy(alpha = 0.92f),
+          )
+        }
+      }
     }
   }
 }
@@ -618,12 +641,13 @@ private fun DanmakuOverlay(
   transparentBackground: Boolean,
   modifier: Modifier = Modifier,
 ) {
-  Box(
+  BoxWithConstraints(
     modifier = modifier
       .fillMaxHeight(areaFraction)
       .clipToBounds(),
     contentAlignment = Alignment.BottomStart,
   ) {
+    val maxBubbleWidth = maxWidth * 0.92f
     Column(verticalArrangement = Arrangement.Bottom) {
       messages.takeLast(10).forEach { msg ->
         DanmakuBubble(
@@ -631,7 +655,7 @@ private fun DanmakuOverlay(
           content = msg.content,
           showUser = showUser,
           transparentBackground = transparentBackground,
-          modifier = Modifier.fillMaxWidth(0.92f),
+          modifier = Modifier.widthIn(max = maxBubbleWidth),
           maxLines = 1,
           compact = true,
         )
