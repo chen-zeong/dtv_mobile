@@ -33,6 +33,7 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import dtv.mobile.model.Streamer
 import dtv.mobile.util.formatViewerCountWanIfNeeded
 import dtv.mobile.util.normalizeHttpUrl
@@ -125,20 +126,20 @@ fun StreamerCard(
             modifier = Modifier
               .align(Alignment.TopEnd)
               .padding(10.dp),
-            shape = RoundedCornerShape(10.dp),
+            shape = RoundedCornerShape(8.dp),
             color = Color.Black.copy(alpha = 0.40f),
             border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.12f)),
             tonalElevation = 0.dp,
             shadowElevation = 0.dp,
           ) {
             Row(
-              modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+              modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
               verticalAlignment = Alignment.CenterVertically,
               horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
               Text(
                 text = formatViewerCountWanIfNeeded(streamer.viewerText),
-                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Black),
+                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Black, fontSize = 10.sp),
                 color = Color.White,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,

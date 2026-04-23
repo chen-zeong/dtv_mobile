@@ -81,8 +81,26 @@ fun DouyuHomeScreen(
     loading = true
     val data = appState.repo.fetchDouyuCategories()
     categories = data.cate1List
-    selectedCate1 = data.cate1List.firstOrNull()
-    selectedCate2 = selectedCate1?.cate2List?.firstOrNull()
+
+    val savedParts = appState.currentPartition
+      ?.takeIf { it.platform == Platform.Douyu }
+      ?.id
+      ?.split(':')
+      .orEmpty()
+    val savedType = savedParts.getOrNull(1).orEmpty()
+    val savedId = savedParts.getOrNull(2).orEmpty()
+
+    val savedCate2 = if (savedType == "c2" && savedId.isNotBlank()) {
+      data.cate1List.asSequence().mapNotNull { c1 ->
+        val c2 = c1.cate2List.firstOrNull { it.id == savedId }
+        c2?.let { c1 to it }
+      }.firstOrNull()
+    } else {
+      null
+    }
+
+    selectedCate1 = savedCate2?.first ?: data.cate1List.firstOrNull()
+    selectedCate2 = savedCate2?.second ?: selectedCate1?.cate2List?.firstOrNull()
     loading = false
   }
 
@@ -135,6 +153,18 @@ fun DouyuHomeScreen(
 
   LaunchedEffect(selectedCate2?.id, selectedCate3?.id) {
     if (selectedCate2 == null) return@LaunchedEffect
+    appState.currentPartition = when {
+      selectedCate3 != null -> SubscribedPartition(
+        id = "douyu:c3:${selectedCate3!!.id}",
+        name = selectedCate3!!.name,
+        platform = Platform.Douyu,
+      )
+      else -> SubscribedPartition(
+        id = "douyu:c2:${selectedCate2!!.id}",
+        name = selectedCate2!!.name,
+        platform = Platform.Douyu,
+      )
+    }
     // small debounce to avoid double refresh when cate2 -> cate3 list updates
     delay(60)
     loadPage(reset = true)

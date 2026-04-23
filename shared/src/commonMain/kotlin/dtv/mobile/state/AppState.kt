@@ -116,15 +116,18 @@ class AppState(
     val updated = snapshot.map { s ->
       repo.fetchFollowedStreamerSnapshot(s)?.let { it.copy(platform = s.platform, roomId = s.roomId) } ?: s
     }
-
-    val sorted = updated.sortedWith(
-      compareByDescending<Streamer> { it.isLive }
-        .thenBy { it.platform.ordinal }
-        .thenBy { it.name },
-    )
-
     followedStreamers.clear()
-    followedStreamers.addAll(sorted)
+    followedStreamers.addAll(updated)
+    subscriptionStore.saveFollowedStreamers(followedStreamers.toList())
+  }
+
+  fun moveFollowedStreamer(fromIndex: Int, toIndex: Int) {
+    if (fromIndex == toIndex) return
+    if (fromIndex !in 0 until followedStreamers.size) return
+    if (toIndex !in 0 until followedStreamers.size) return
+
+    val item = followedStreamers.removeAt(fromIndex)
+    followedStreamers.add(index = toIndex, element = item)
     subscriptionStore.saveFollowedStreamers(followedStreamers.toList())
   }
 
@@ -153,6 +156,7 @@ class AppState(
   fun selectPlatform(platform: Platform) {
     platformSwitchLoading = true
     selectedPlatform = platform
+    currentPartition = null
     if (currentScreen == Screen.Search) {
       // keep current screen for better UX when switching tabs during search
       return
@@ -181,7 +185,6 @@ class AppState(
         currentScreen = playerReturnScreen ?: Screen.Home
         playerReturnScreen = null
         currentStreamer = null
-        currentPartition = null
         playerFullscreen = false
       }
       Screen.Search -> {

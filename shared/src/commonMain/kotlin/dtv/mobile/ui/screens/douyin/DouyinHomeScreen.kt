@@ -120,13 +120,36 @@ fun DouyinHomeScreen(
     loading = true
     val data = appState.repo.fetchDouyinCategories()
     categories = data
-    selectedCate1 = data.firstOrNull()
-    selectedCate2 = selectedCate1?.cate2List?.firstOrNull()
+
+    val savedParts = appState.currentPartition
+      ?.takeIf { it.platform == Platform.Douyin }
+      ?.id
+      ?.split(':')
+      .orEmpty()
+    val savedPartitionType = savedParts.getOrNull(1).orEmpty()
+    val savedPartition = savedParts.getOrNull(2).orEmpty()
+
+    val saved = if (savedPartitionType.isNotBlank() && savedPartition.isNotBlank()) {
+      data.asSequence().mapNotNull { c1 ->
+        val c2 = c1.cate2List.firstOrNull { it.partitionType == savedPartitionType && it.partition == savedPartition }
+        c2?.let { c1 to it }
+      }.firstOrNull()
+    } else {
+      null
+    }
+
+    selectedCate1 = saved?.first ?: data.firstOrNull()
+    selectedCate2 = saved?.second ?: selectedCate1?.cate2List?.firstOrNull()
     loading = false
   }
 
   LaunchedEffect(selectedCate2?.partition, selectedCate2?.partitionType) {
     if (selectedCate2 == null) return@LaunchedEffect
+    appState.currentPartition = SubscribedPartition(
+      id = "douyin:${selectedCate2!!.partitionType}:${selectedCate2!!.partition}",
+      name = selectedCate2!!.name,
+      platform = Platform.Douyin,
+    )
     loadPage(reset = true)
     gridState.scrollToItem(0)
   }

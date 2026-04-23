@@ -33,6 +33,7 @@ import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -62,6 +63,7 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.style.TextOverflow
@@ -133,6 +135,13 @@ fun PlayerScreen(
 
   LaunchedEffect(streamer?.roomId) {
     val s = streamer ?: return@LaunchedEffect
+    if (!s.isLive) {
+      loading = false
+      error = null
+      url = null
+      playInfo = null
+      return@LaunchedEffect
+    }
     loading = true
     error = null
     url = null
@@ -226,59 +235,54 @@ fun PlayerScreen(
       ) {
         Text("播放设置", style = MaterialTheme.typography.titleMedium)
 
-        Text("画质", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f))
-        when (streamer.platform) {
-          Platform.Douyu -> {
-            RowWrap(
-              items = listOf("自动" to null) + (playInfo?.variants.orEmpty().map { it.name to it.name }),
-              selected = selectedDouyuQuality,
-              onSelect = { selectedDouyuQuality = it },
-            )
-          }
-          Platform.Douyin -> {
-            RowWrap(
-              items = listOf(
-                "自动" to null,
-                "原画" to "ORIGIN",
-                "超清" to "FULL_HD1",
-                "高清" to "HD1",
-                "标清" to "SD1",
-              ),
-              selected = selectedDouyinQuality,
-              onSelect = { selectedDouyinQuality = it },
-            )
-          }
-          Platform.Bilibili -> {
-            RowWrapInt(
-              items = listOf(
-                "自动" to null,
-                "原画" to 10000,
-                "蓝光" to 400,
-                "超清" to 250,
-                "高清" to 150,
-                "流畅" to 80,
-              ),
-              selected = selectedBilibiliQn,
-              onSelect = { selectedBilibiliQn = it },
-            )
-          }
-          else -> {
-            Text("当前平台暂不支持切换画质", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f))
+        if (streamer.platform == Platform.Douyu || streamer.platform == Platform.Douyin || streamer.platform == Platform.Bilibili) {
+          Text("画质", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f))
+          when (streamer.platform) {
+            Platform.Douyu -> {
+              RowWrap(
+                items = listOf("自动" to null) + (playInfo?.variants.orEmpty().map { it.name to it.name }),
+                selected = selectedDouyuQuality,
+                onSelect = { selectedDouyuQuality = it },
+              )
+            }
+            Platform.Douyin -> {
+              RowWrap(
+                items = listOf(
+                  "自动" to null,
+                  "原画" to "ORIGIN",
+                  "超清" to "FULL_HD1",
+                  "高清" to "HD1",
+                  "标清" to "SD1",
+                ),
+                selected = selectedDouyinQuality,
+                onSelect = { selectedDouyinQuality = it },
+              )
+            }
+            Platform.Bilibili -> {
+              RowWrapInt(
+                items = listOf(
+                  "自动" to null,
+                  "原画" to 10000,
+                  "蓝光" to 400,
+                  "超清" to 250,
+                  "高清" to 150,
+                  "流畅" to 80,
+                ),
+                selected = selectedBilibiliQn,
+                onSelect = { selectedBilibiliQn = it },
+              )
+            }
+            else -> Unit
           }
         }
 
-        Text("线路", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f))
-        when (streamer.platform) {
-          Platform.Douyu -> {
-            RowWrap(
-              items = listOf("自动" to null) + (playInfo?.cdns.orEmpty().map { it to it }),
-              selected = selectedDouyuCdn,
-              onSelect = { selectedDouyuCdn = it },
-            )
-          }
-          else -> {
-            Text("当前平台暂不支持切换线路", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f))
-          }
+        if (streamer.platform == Platform.Douyu) {
+          Text("线路", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f))
+          RowWrap(
+            items = listOf("自动" to null) + (playInfo?.cdns.orEmpty().map { it to it }),
+            selected = selectedDouyuCdn,
+            onSelect = { selectedDouyuCdn = it },
+          )
         }
 
         Text("弹幕", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f))
@@ -360,22 +364,59 @@ fun PlayerScreen(
               modifier = Modifier.fillMaxSize(),
             )
           } else {
-            Column(
+            Box(
               modifier = Modifier
                 .fillMaxSize()
                 .padding(16.dp),
-              verticalArrangement = Arrangement.spacedBy(10.dp),
+              contentAlignment = Alignment.Center,
             ) {
-              Text(
-                text = when {
-                  streamer == null -> "未选择直播间"
-                  loading -> "正在获取播放地址…"
-                  error != null -> error!!
-                  else -> "准备播放…"
-                },
-                style = MaterialTheme.typography.titleMedium,
-                color = if (fullscreen) Color.White.copy(alpha = 0.9f) else MaterialTheme.colorScheme.onSecondary.copy(alpha = 0.85f),
-              )
+              when {
+                streamer == null -> {
+                  Text(
+                    text = "未选择直播间",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = if (fullscreen) Color.White.copy(alpha = 0.9f) else MaterialTheme.colorScheme.onSecondary.copy(alpha = 0.85f),
+                  )
+                }
+                streamer.isLive == false -> {
+                  Surface(
+                    shape = RoundedCornerShape(28.dp),
+                    color = if (fullscreen) Color.Black.copy(alpha = 0.30f) else MaterialTheme.colorScheme.surface.copy(alpha = 0.75f),
+                    tonalElevation = 0.dp,
+                    shadowElevation = 0.dp,
+                  ) {
+                    Column(
+                      modifier = Modifier.padding(horizontal = 18.dp, vertical = 14.dp),
+                      verticalArrangement = Arrangement.spacedBy(6.dp),
+                      horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                      Text(
+                        text = "主播未开播",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Black),
+                        color = if (fullscreen) Color.White.copy(alpha = 0.92f) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.92f),
+                      )
+                      Text(
+                        text = "当前直播间没有在直播",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (fullscreen) Color.White.copy(alpha = 0.72f) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
+                      )
+                    }
+                  }
+                }
+                loading -> {
+                  CircularProgressIndicator(
+                    color = if (fullscreen) Color.White.copy(alpha = 0.85f) else MaterialTheme.colorScheme.primary,
+                    strokeWidth = 3.dp,
+                  )
+                }
+                error != null -> {
+                  Text(
+                    text = error!!,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (fullscreen) Color.White.copy(alpha = 0.9f) else MaterialTheme.colorScheme.onSecondary.copy(alpha = 0.85f),
+                  )
+                }
+              }
             }
           }
 
@@ -405,9 +446,9 @@ fun PlayerScreen(
                 .padding(10.dp),
             )
           } else {
-            DanmakuOverlay(
+           DanmakuOverlay(
               messages = danmakuMessages,
-              showUser = !(fullscreen || isVerticalVideo),
+              showUser = true,
               areaFraction = danmakuAreaFraction,
               transparentBackground = false,
               modifier = Modifier
@@ -418,14 +459,15 @@ fun PlayerScreen(
           }
 
           PlayerSideControlsOverlay(
-            fullscreen = fullscreen,
-            onToggleFullscreen = { fullscreen = !fullscreen },
-            onOpenSettings = { showSettings = true },
-            onReload = { reloadUrl() },
-            modifier = Modifier
-              .align(Alignment.CenterEnd)
-              .padding(end = 16.dp),
-          )
+             fullscreen = fullscreen,
+            showFullscreen = !isVerticalVideo,
+             onToggleFullscreen = { fullscreen = !fullscreen },
+             onOpenSettings = { showSettings = true },
+             onReload = { reloadUrl() },
+             modifier = Modifier
+               .align(Alignment.CenterEnd)
+               .padding(end = 16.dp),
+           )
 
         }
       }
@@ -461,42 +503,71 @@ private fun PlayerHeader(
   val mutedFg = if (isDark) Color(0xFF9CA3AF) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f)
   val liveDot = if (streamer?.isLive == true) MaterialTheme.colorScheme.primary else Color(0xFF9CA3AF)
   val infoBg = if (overlay) Color.Black.copy(alpha = 0.30f) else headerBg
-  val infoBorder = if (overlay) Color.White.copy(alpha = 0.14f) else MaterialTheme.colorScheme.outline.copy(alpha = 0.30f)
   val closeBorder = Color.White.copy(alpha = if (overlay || isDark) 0.16f else 0.10f)
 
   Column(
     modifier = modifier
       .statusBarsPadding()
-      .padding(vertical = 10.dp),
+      .padding(vertical = 6.dp),
     verticalArrangement = Arrangement.spacedBy(0.dp),
   ) {
+    val infoShape = RoundedCornerShape(22.dp)
+    val infoPrimary = if (overlay || isDark) Color.White.copy(alpha = 0.92f) else headerFg
+    val infoSecondary = if (overlay || isDark) Color.White.copy(alpha = 0.72f) else mutedFg
+    val closeFg = if (overlay || isDark) Color.White.copy(alpha = 0.92f) else headerFg
+    val closeBg = if (overlay || isDark) {
+      Brush.linearGradient(
+        colors = listOf(
+          Color.White.copy(alpha = 0.18f),
+          Color.White.copy(alpha = 0.08f),
+        ),
+      )
+    } else {
+      Brush.linearGradient(
+        colors = listOf(
+          MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
+          MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
+        ),
+      )
+    }
+
     Row(
-      modifier = Modifier.fillMaxWidth(),
+      modifier = Modifier
+        .fillMaxWidth()
+        .padding(horizontal = 12.dp),
       verticalAlignment = Alignment.CenterVertically,
-      horizontalArrangement = Arrangement.SpaceBetween,
+      horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
       Surface(
         modifier = Modifier
-          .padding(start = 12.dp)
-          .clip(RoundedCornerShape(18.dp)),
-        shape = RoundedCornerShape(18.dp),
+          .weight(1f)
+          .clip(infoShape),
+        shape = infoShape,
         color = infoBg,
-        border = BorderStroke(1.dp, infoBorder),
+        border = null,
         tonalElevation = 0.dp,
         shadowElevation = 0.dp,
       ) {
         Row(
-          modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+          modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 10.dp, vertical = 7.dp),
           verticalAlignment = Alignment.CenterVertically,
-          horizontalArrangement = Arrangement.spacedBy(12.dp),
+          horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
           val avatar = normalizeHttpUrl(streamer?.avatarUrl)
-          Box(modifier = Modifier.size(44.dp)) {
+          Box(modifier = Modifier.size(36.dp)) {
             Box(
               modifier = Modifier
                 .matchParentSize()
                 .clip(CircleShape)
-                .background(Color.White.copy(alpha = if (overlay || isDark) 0.10f else 0.06f)),
+                .background(
+                  if (overlay || isDark) {
+                    Color.White.copy(alpha = 0.10f)
+                  } else {
+                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f)
+                  },
+                ),
               contentAlignment = Alignment.Center,
             ) {
               if (avatar != null) {
@@ -504,8 +575,9 @@ private fun PlayerHeader(
               } else {
                 Text(
                   text = streamer?.name?.take(1).orEmpty(),
-                  color = Color.White.copy(alpha = 0.92f),
+                  color = infoPrimary,
                   style = MaterialTheme.typography.titleSmall,
+                  textAlign = TextAlign.Center,
                 )
               }
             }
@@ -515,7 +587,7 @@ private fun PlayerHeader(
                 modifier = Modifier
                   .align(Alignment.BottomEnd)
                   .offset(x = 1.dp, y = 1.dp)
-                  .size(14.dp)
+                  .size(12.dp)
                   .clip(CircleShape)
                   .background(liveDot)
                   .border(width = 2.dp, color = infoBg, shape = CircleShape),
@@ -523,25 +595,37 @@ private fun PlayerHeader(
             }
           }
 
-          Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(
-              text = streamer?.name.orEmpty(),
-              style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Black),
-              color = Color.White.copy(alpha = 0.92f),
-              maxLines = 1,
-              overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-              text = streamer?.title?.trim().orEmpty(),
-              style = MaterialTheme.typography.labelSmall,
-              color = Color.White.copy(alpha = 0.72f),
-              maxLines = 1,
-              overflow = TextOverflow.Ellipsis,
-            )
+          BoxWithConstraints(modifier = Modifier.weight(1f)) {
+            val widthKey = maxWidth
+            var hideName by remember(streamer?.roomId, streamer?.name, widthKey) { mutableStateOf(false) }
+            var hideTitle by remember(streamer?.roomId, streamer?.title, widthKey) { mutableStateOf(false) }
+
+            Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+              if (!hideName) {
+                Text(
+                  text = streamer?.name.orEmpty(),
+                  style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Black),
+                  color = infoPrimary,
+                  maxLines = 1,
+                  overflow = TextOverflow.Ellipsis,
+                  onTextLayout = { hideName = it.hasVisualOverflow },
+                )
+              }
+              if (!hideTitle) {
+                Text(
+                  text = streamer?.title?.trim().orEmpty(),
+                  style = MaterialTheme.typography.labelSmall,
+                  color = infoSecondary,
+                  maxLines = 1,
+                  overflow = TextOverflow.Ellipsis,
+                  onTextLayout = { hideTitle = it.hasVisualOverflow },
+                )
+              }
+            }
           }
 
           if (streamer != null) {
-            val iconTint = if (followed) Color(0xFFE11D48) else Color.White.copy(alpha = 0.75f)
+            val iconTint = if (followed) Color(0xFFE11D48) else infoSecondary
             IconButton(onClick = { onToggleFollow(streamer) }) {
               Icon(
                 imageVector = if (followed) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
@@ -555,34 +639,25 @@ private fun PlayerHeader(
 
       Surface(
         modifier = Modifier
-          .padding(end = 12.dp)
-          .size(40.dp)
+          .size(38.dp)
           .clip(CircleShape)
           .clickable(onClick = onBack),
         shape = CircleShape,
         color = Color.Transparent,
-        border = BorderStroke(1.dp, closeBorder),
+        border = BorderStroke(1.dp, if (overlay || isDark) closeBorder else MaterialTheme.colorScheme.outline.copy(alpha = 0.28f)),
         tonalElevation = 0.dp,
         shadowElevation = 0.dp,
       ) {
-        // Faux "frosted glass": translucent gradient + subtle border.
         Box(
           modifier = Modifier
             .fillMaxSize()
-            .background(
-              Brush.linearGradient(
-                colors = listOf(
-                  Color.White.copy(alpha = 0.18f),
-                  Color.White.copy(alpha = 0.08f),
-                ),
-              ),
-            ),
+            .background(closeBg),
           contentAlignment = Alignment.Center,
         ) {
           Icon(
             imageVector = Icons.Default.Close,
             contentDescription = "关闭",
-            tint = Color.White.copy(alpha = 0.92f),
+            tint = closeFg,
           )
         }
       }
@@ -593,6 +668,7 @@ private fun PlayerHeader(
 @Composable
 private fun PlayerSideControlsOverlay(
   fullscreen: Boolean,
+  showFullscreen: Boolean,
   onToggleFullscreen: () -> Unit,
   onOpenSettings: () -> Unit,
   onReload: () -> Unit,
@@ -605,7 +681,9 @@ private fun PlayerSideControlsOverlay(
   ) {
     ControlFab(icon = Icons.Default.Settings, onClick = onOpenSettings)
     ControlFab(icon = Icons.Default.Refresh, onClick = onReload)
-    ControlFab(icon = Icons.Default.FullscreenExit.takeIf { fullscreen } ?: Icons.Default.Fullscreen, onClick = onToggleFullscreen)
+    if (showFullscreen) {
+      ControlFab(icon = Icons.Default.FullscreenExit.takeIf { fullscreen } ?: Icons.Default.Fullscreen, onClick = onToggleFullscreen)
+    }
   }
 }
 
@@ -659,7 +737,7 @@ private fun DanmakuOverlay(
           maxLines = 1,
           compact = true,
         )
-        SpacerLine(6.dp)
+        SpacerLine(4.dp)
       }
     }
   }
@@ -693,16 +771,17 @@ private fun DanmakuBubble(
     append(displayContent)
   }
 
-  val hPad = if (compact) 10.dp else 12.dp
-  val vPad = if (compact) 6.dp else 8.dp
+  val hPad = if (compact) 8.dp else 12.dp
+  val vPad = if (compact) 4.dp else 8.dp
+  val bubbleShape = if (compact) RoundedCornerShape(16.dp) else RoundedCornerShape(14.dp)
 
   Surface(
     modifier = modifier,
-    shape = RoundedCornerShape(14.dp),
+    shape = bubbleShape,
     color = if (transparentBackground) Color.Transparent else Color.Black.copy(alpha = 0.26f),
-    border = if (transparentBackground) null else BorderStroke(1.dp, Color.White.copy(alpha = 0.14f)),
+    border = null,
     tonalElevation = 0.dp,
-    shadowElevation = 1.dp,
+    shadowElevation = 0.dp,
   ) {
     Text(
       text = text,
@@ -721,29 +800,58 @@ private fun HubDanmakuPanel(
   modifier: Modifier = Modifier,
 ) {
   val listState = rememberLazyListState()
+  val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+  val shape = RoundedCornerShape(18.dp)
+  val bgBrush = if (isDark) {
+    Brush.verticalGradient(
+      colors = listOf(
+        Color.White.copy(alpha = 0.08f),
+        Color.White.copy(alpha = 0.03f),
+      ),
+    )
+  } else {
+    Brush.verticalGradient(
+      colors = listOf(
+        MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
+        MaterialTheme.colorScheme.surface.copy(alpha = 0.75f),
+      ),
+    )
+  }
 
   val display = remember(messages) { messages.asReversed() }
   LaunchedEffect(display.size) {
     if (display.isNotEmpty()) listState.scrollToItem(index = 0)
   }
 
-  LazyColumn(
-    modifier = modifier
-      .fillMaxWidth()
-      .height(260.dp),
-    state = listState,
-    reverseLayout = true,
-    contentPadding = PaddingValues(0.dp),
-    verticalArrangement = Arrangement.spacedBy(8.dp),
+  Surface(
+    modifier = modifier.fillMaxWidth().clip(shape),
+    shape = shape,
+    color = Color.Transparent,
+    tonalElevation = 0.dp,
+    shadowElevation = 0.dp,
+    border = null,
   ) {
-    itemsIndexed(
-      display,
-      key = { index, msg -> "${msg.roomId}:${msg.user}:${msg.content}:$index" },
-    ) { _, msg ->
-      HubDanmakuRow(
-        user = msg.user.trim().ifBlank { "匿名" },
-        content = msg.content.trim(),
-      )
+    Box(modifier = Modifier.background(bgBrush)) {
+      LazyColumn(
+        modifier = Modifier
+          .fillMaxWidth()
+          .height(260.dp)
+          .padding(horizontal = 10.dp, vertical = 10.dp),
+        state = listState,
+        reverseLayout = true,
+        contentPadding = PaddingValues(0.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+      ) {
+        itemsIndexed(
+          display,
+          key = { index, msg -> "${msg.roomId}:${msg.user}:${msg.content}:$index" },
+        ) { _, msg ->
+          HubDanmakuRow(
+            user = msg.user.trim().ifBlank { "匿名" },
+            content = msg.content.trim(),
+          )
+        }
+      }
     }
   }
 }

@@ -55,7 +55,11 @@ fun SimpleModePlatformScreen(
   val platform = partitions.firstOrNull()?.platform ?: appState.selectedPlatform
   val pageSize = if (platform == Platform.Douyin) 15 else 20
 
-  var selectedPartition by remember(partitions) { mutableStateOf(partitions.first()) }
+  val initialPartitionId = appState.currentPartition?.takeIf { it.platform == platform }?.id
+  var selectedPartition by remember(partitions, initialPartitionId) {
+    val initial = partitions.firstOrNull { it.id == initialPartitionId } ?: partitions.first()
+    mutableStateOf(initial)
+  }
 
   var rooms by remember(selectedPartition.id) { mutableStateOf<List<Streamer>>(emptyList()) }
   var loading by remember(selectedPartition.id) { mutableStateOf(true) }
@@ -158,6 +162,7 @@ fun SimpleModePlatformScreen(
   }
 
   LaunchedEffect(selectedPartition.id) {
+    appState.currentPartition = selectedPartition
     loadPage(reset = true)
     gridState.scrollToItem(0)
   }
@@ -191,7 +196,10 @@ fun SimpleModePlatformScreen(
           CategoryPill(
             label = p.name,
             selected = p.id == selectedPartition.id,
-            onClick = { selectedPartition = p },
+            onClick = {
+              selectedPartition = p
+              appState.currentPartition = p
+            },
           )
         }
       }

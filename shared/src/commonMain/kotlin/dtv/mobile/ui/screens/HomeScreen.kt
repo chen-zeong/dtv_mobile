@@ -3,6 +3,7 @@ package dtv.mobile.ui.screens
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,6 +21,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
@@ -28,6 +30,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -37,14 +40,18 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import dtv.mobile.state.AppState
 import dtv.mobile.ui.components.HomeStreamerCard
 import dtv.mobile.ui.components.NetworkImage
@@ -60,6 +67,11 @@ fun HomeScreen(
   val items = appState.followedStreamers
   var refreshing by remember { mutableStateOf(false) }
   val scope = rememberCoroutineScope()
+  val gridState = rememberLazyGridState()
+
+  var draggingKey by remember { mutableStateOf<String?>(null) }
+  var dragOffset by remember { mutableStateOf(Offset.Zero) }
+  var moveCount by remember { mutableIntStateOf(0) }
 
   if (items.isEmpty()) {
     Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -86,6 +98,7 @@ fun HomeScreen(
   ) {
     LazyVerticalGrid(
       modifier = Modifier.fillMaxSize(),
+      state = gridState,
       columns = GridCells.Fixed(2),
       contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 9.dp, bottom = 92.dp),
       horizontalArrangement = Arrangement.spacedBy(16.dp),
@@ -105,11 +118,80 @@ fun HomeScreen(
       }
 
       items(items, key = { "${it.platform}-${it.roomId}" }) { streamer ->
+        val itemKey = "${streamer.platform}-${streamer.roomId}"
+        val isDragging = draggingKey == itemKey
         HomeStreamerCard(
           streamer = streamer,
           followed = true,
-          onClick = { appState.openPlayer(streamer) },
+          onClick = { if (draggingKey == null) appState.openPlayer(streamer) },
           onToggleFollow = { appState.toggleFollow(streamer) },
+          modifier = Modifier
+            .then(
+              if (isDragging) {
+                Modifier
+                  .zIndex(2f)
+                  .offset { IntOffset(dragOffset.x.toInt(), dragOffset.y.toInt()) }
+              } else {
+                Modifier
+              },
+            )
+            .pointerInput(itemKey, moveCount) {
+              detectDragGesturesAfterLongPress(
+                onDragStart = {
+                  draggingKey = itemKey
+                  dragOffset = Offset.Zero
+                },
+                onDragCancel = {
+                  draggingKey = null
+                  dragOffset = Offset.Zero
+                },
+                onDragEnd = {
+                  draggingKey = null
+                  dragOffset = Offset.Zero
+                },
+                onDrag = { change, dragAmount ->
+                  change.consume()
+                  if (draggingKey != itemKey) return@detectDragGesturesAfterLongPress
+
+                  dragOffset += dragAmount
+
+                  val fromIndex = items.indexOfFirst { "${it.platform}-${it.roomId}" == itemKey }
+                  if (fromIndex < 0) return@detectDragGesturesAfterLongPress
+
+                  val draggingInfo = gridState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == fromIndex + 1 }
+                    ?: return@detectDragGesturesAfterLongPress
+
+                  val draggingCenter = Offset(
+                    x = draggingInfo.offset.x + dragOffset.x + draggingInfo.size.width / 2f,
+                    y = draggingInfo.offset.y + dragOffset.y + draggingInfo.size.height / 2f,
+                  )
+
+                  val targetInfo = gridState.layoutInfo.visibleItemsInfo
+                    .asSequence()
+                    .filter { it.index in 1..items.lastIndex + 1 }
+                    .firstOrNull { info ->
+                      if (info.index == draggingInfo.index) return@firstOrNull false
+                      val left = info.offset.x.toFloat()
+                      val top = info.offset.y.toFloat()
+                      val right = left + info.size.width
+                      val bottom = top + info.size.height
+                      draggingCenter.x in left..right && draggingCenter.y in top..bottom
+                    }
+
+                  val toIndex = targetInfo?.index?.minus(1) ?: return@detectDragGesturesAfterLongPress
+                  if (toIndex == fromIndex) return@detectDragGesturesAfterLongPress
+
+                  val diff = Offset(
+                    x = (draggingInfo.offset.x - targetInfo.offset.x).toFloat(),
+                    y = (draggingInfo.offset.y - targetInfo.offset.y).toFloat(),
+                  )
+
+                  appState.moveFollowedStreamer(fromIndex = fromIndex, toIndex = toIndex)
+                  dragOffset += diff
+                  moveCount += 1
+                },
+              )
+            },
         )
       }
 

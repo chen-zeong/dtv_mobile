@@ -119,13 +119,35 @@ fun BilibiliHomeScreen(
     loading = true
     val data = appState.repo.fetchBilibiliCategories()
     categories = data
-    selectedCate1 = data.firstOrNull()
-    selectedCate2 = selectedCate1?.cate2List?.firstOrNull()
-    loading = false
+
+    val savedParts = appState.currentPartition
+      ?.takeIf { it.platform == Platform.Bilibili }
+      ?.id
+      ?.split(':')
+      .orEmpty()
+    val savedParentAreaId = savedParts.getOrNull(1)?.toIntOrNull()
+    val savedAreaId = savedParts.getOrNull(2)?.toIntOrNull()
+
+    val saved = if (savedParentAreaId != null && savedAreaId != null) {
+      data.asSequence().mapNotNull { c1 ->
+        val c2 = c1.cate2List.firstOrNull { it.parentAreaId == savedParentAreaId && it.areaId == savedAreaId }
+        c2?.let { c1 to it }
+      }.firstOrNull()
+    } else {
+      null
+    }
+
+    selectedCate1 = saved?.first ?: data.firstOrNull()
+    selectedCate2 = saved?.second ?: selectedCate1?.cate2List?.firstOrNull()
   }
 
   LaunchedEffect(selectedCate2?.parentAreaId, selectedCate2?.areaId) {
     if (selectedCate2 == null) return@LaunchedEffect
+    appState.currentPartition = SubscribedPartition(
+      id = "bilibili:${selectedCate2!!.parentAreaId}:${selectedCate2!!.areaId}",
+      name = selectedCate2!!.name,
+      platform = Platform.Bilibili,
+    )
     loadPage(reset = true)
     gridState.scrollToItem(0)
   }

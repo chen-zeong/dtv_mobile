@@ -31,6 +31,7 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import dtv.mobile.model.Streamer
 import dtv.mobile.util.formatViewerCountWanIfNeeded
 import dtv.mobile.util.normalizeHttpUrl
@@ -113,7 +114,7 @@ fun HomeStreamerCard(
           modifier = Modifier
             .align(Alignment.TopEnd)
             .padding(end = 12.dp, top = 12.dp),
-          shape = RoundedCornerShape(999.dp),
+          shape = RoundedCornerShape(10.dp),
           color = Color.Black.copy(alpha = 0.40f),
           border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.10f)),
           tonalElevation = 0.dp,
@@ -121,9 +122,9 @@ fun HomeStreamerCard(
         ) {
           Text(
             text = formatViewerCountWanIfNeeded(streamer.viewerText),
-            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Black),
+            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Black, fontSize = 10.sp),
             color = Color.White,
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
           )

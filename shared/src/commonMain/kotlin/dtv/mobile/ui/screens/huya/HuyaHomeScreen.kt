@@ -103,13 +103,31 @@ fun HuyaHomeScreen(
     loading = true
     val data = appState.repo.fetchHuyaCategories()
     categories = data
-    selectedCate1 = data.firstOrNull()
-    selectedCate2 = selectedCate1?.cate2List?.firstOrNull()
-    loading = false
+
+    val savedGid = appState.currentPartition
+      ?.takeIf { it.platform == Platform.Huya }
+      ?.id
+      ?.substringAfter("huya:", missingDelimiterValue = "")
+      ?.takeIf { it.isNotBlank() }
+
+    val saved = savedGid?.let { gid ->
+      data.asSequence().mapNotNull { c1 ->
+        val c2 = c1.cate2List.firstOrNull { it.gid == gid }
+        c2?.let { c1 to it }
+      }.firstOrNull()
+    }
+
+    selectedCate1 = saved?.first ?: data.firstOrNull()
+    selectedCate2 = saved?.second ?: selectedCate1?.cate2List?.firstOrNull()
   }
 
   LaunchedEffect(selectedCate2?.gid) {
     if (selectedCate2 == null) return@LaunchedEffect
+    appState.currentPartition = SubscribedPartition(
+      id = "huya:${selectedCate2!!.gid}",
+      name = selectedCate2!!.name,
+      platform = Platform.Huya,
+    )
     loadPage(reset = true)
     gridState.scrollToItem(0)
   }
