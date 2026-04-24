@@ -47,6 +47,7 @@ import dtv.mobile.ui.components.LazyGridLoadMoreEffect
 import dtv.mobile.ui.components.PullToRefreshBox
 import dtv.mobile.ui.components.StreamerCard
 import dtv.mobile.ui.components.StreamerCardSkeleton
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private const val PAGE_SIZE = 20
@@ -74,6 +75,7 @@ fun HuyaHomeScreen(
 
   suspend fun loadPage(reset: Boolean) {
     val gid = selectedCate2?.gid ?: return
+    val hadItems = rooms.isNotEmpty()
     if (reset) {
       rooms = emptyList()
       hasMore = true
@@ -82,6 +84,7 @@ fun HuyaHomeScreen(
     if (!hasMore) return
 
     if (reset) loading = true else loadingMore = true
+    val startMs = if (reset && !hadItems) System.currentTimeMillis() else 0L
     val resp: PagedResult<Streamer> = appState.repo.fetchHuyaLiveList(gid = gid, page = page, limit = PAGE_SIZE)
     val incoming = resp.items
     val old = rooms
@@ -95,6 +98,11 @@ fun HuyaHomeScreen(
     rooms = merged
     hasMore = incoming.isNotEmpty() && addedCount > 0
     page += 1
+    if (reset && !hadItems) {
+      val elapsed = System.currentTimeMillis() - startMs
+      val remaining = 180L - elapsed
+      if (remaining > 0) delay(remaining)
+    }
     if (reset) loading = false else loadingMore = false
     if (reset) appState.platformSwitchLoading = false
   }

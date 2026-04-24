@@ -12,20 +12,24 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import dtv.mobile.model.Platform
 import dtv.mobile.model.Streamer
 import dtv.mobile.state.AppState
+import dtv.mobile.ui.components.BilibiliWebLoginSheet
 import dtv.mobile.ui.components.StreamerCard
 import dtv.mobile.ui.components.StreamerCardStyle
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 @Composable
 fun SearchScreen(
@@ -39,6 +43,10 @@ fun SearchScreen(
 
   val platform = appState.selectedPlatform
   val supported = platform == Platform.Douyu || platform == Platform.Huya || platform == Platform.Bilibili || platform == Platform.Douyin
+  val scope = rememberCoroutineScope()
+
+  var showBilibiliLoginSheet by remember { mutableStateOf(false) }
+  var bilibiliLoggedIn by remember { mutableStateOf(false) }
 
   val placeholder = when (platform) {
     Platform.Huya -> "搜索虎牙主播/房间..."
@@ -68,6 +76,27 @@ fun SearchScreen(
     loading = false
   }
 
+  LaunchedEffect(platform) {
+    bilibiliLoggedIn = if (platform == Platform.Bilibili) {
+      !appState.repo.getBilibiliCookie().isNullOrBlank()
+    } else {
+      showBilibiliLoginSheet = false
+      false
+    }
+  }
+
+  if (platform == Platform.Bilibili && showBilibiliLoginSheet) {
+    BilibiliWebLoginSheet(
+      onDismissRequest = { showBilibiliLoginSheet = false },
+      onCookieCaptured = { cookieHeader ->
+        scope.launch {
+          appState.repo.mergeBilibiliCookie(cookieHeader)
+          bilibiliLoggedIn = !appState.repo.getBilibiliCookie().isNullOrBlank()
+        }
+      },
+    )
+  }
+
   Column(
     modifier = modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 10.dp),
     verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -76,6 +105,13 @@ fun SearchScreen(
       value = query,
       onValueChange = { query = it },
       placeholder = { Text(placeholder) },
+      trailingIcon = {
+        if (platform == Platform.Bilibili) {
+          TextButton(onClick = { showBilibiliLoginSheet = true }) {
+            Text(if (bilibiliLoggedIn) "已登录" else "登录")
+          }
+        }
+      },
       modifier = Modifier.fillMaxWidth(),
       singleLine = true,
     )

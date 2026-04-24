@@ -18,7 +18,6 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.ViewCompact
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -26,8 +25,15 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.ScaffoldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -43,11 +49,51 @@ import dtv.mobile.ui.screens.SearchScreen
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.Color
 import dtv.mobile.ui.system.PlatformBackHandler
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.tween
+import dtv.mobile.model.Platform
+import dtv.mobile.ui.components.BilibiliWebLoginSheet
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RootScaffold(appState: AppState) {
   PlatformBackHandler(enabled = appState.currentScreen != Screen.Home) { appState.back() }
+  val simpleModeEnabled = appState.subscribedPartitions.any { it.platform == appState.selectedPlatform }
+
+  var showBilibiliLoginSheet by remember { mutableStateOf(false) }
+  var bilibiliLoggedIn by remember { mutableStateOf(false) }
+  val scope = rememberCoroutineScope()
+
+  LaunchedEffect(Unit) {
+    if (appState.followedStreamers.isNotEmpty()) {
+      runCatching { appState.refreshFollowedStreamerCards() }
+      runCatching { appState.refreshFollowedLiveStatus() }
+    }
+  }
+
+  LaunchedEffect(appState.currentScreen, appState.selectedPlatform) {
+    if (appState.currentScreen != Screen.Platform) return@LaunchedEffect
+    if (appState.selectedPlatform != Platform.Bilibili) return@LaunchedEffect
+    bilibiliLoggedIn = !runCatching { appState.repo.getBilibiliCookie() }.getOrNull().isNullOrBlank()
+  }
+
+  if (showBilibiliLoginSheet) {
+    BilibiliWebLoginSheet(
+      onDismissRequest = { showBilibiliLoginSheet = false },
+      onCookieCaptured = { cookieHeader ->
+        scope.launch {
+          appState.repo.mergeBilibiliCookie(cookieHeader)
+          bilibiliLoggedIn = !appState.repo.getBilibiliCookie().isNullOrBlank()
+        }
+      },
+    )
+  }
 
   Scaffold(
     modifier = Modifier.fillMaxSize(),
@@ -64,16 +110,10 @@ fun RootScaffold(appState: AppState) {
               }
             },
             actions = {
-              FilterChip(
+              SimpleModeToggleIcon(
+                enabled = simpleModeEnabled,
                 selected = appState.simpleModeForSelectedPlatform,
                 onClick = appState::toggleSimpleModeForSelectedPlatform,
-                label = {
-                    Icon(
-                    imageVector = Icons.Default.ViewCompact,
-                    contentDescription = "简易模式",
-                    modifier = Modifier.padding(vertical = 2.dp),
-                  )
-                },
               )
             },
             colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
@@ -88,6 +128,16 @@ fun RootScaffold(appState: AppState) {
             onSearchClick = appState::openSearch,
             simpleMode = appState.simpleModeForSelectedPlatform,
             onSimpleModeToggle = appState::toggleSimpleModeForSelectedPlatform,
+            simpleModeEnabled = simpleModeEnabled,
+            showBilibiliLogin = appState.currentScreen == Screen.Platform && appState.selectedPlatform == Platform.Bilibili,
+            bilibiliLoggedIn = bilibiliLoggedIn,
+            onBilibiliLoginClick = { showBilibiliLoginSheet = true },
+            onBilibiliLogoutClick = {
+              scope.launch {
+                appState.repo.clearBilibiliCookie()
+                bilibiliLoggedIn = false
+              }
+            },
             showThemeToggle = appState.currentScreen == Screen.Home,
             onThemeToggle = appState::toggleDayNight,
             showSearch = appState.currentScreen != Screen.Home,
@@ -107,24 +157,41 @@ fun RootScaffold(appState: AppState) {
       }
     },
   ) { padding ->
-    when (appState.currentScreen) {
-      Screen.Home -> HomeScreen(
-        modifier = Modifier.padding(padding),
-        appState = appState,
-      )
-      Screen.Platform -> PlatformScreen(
-        modifier = Modifier.padding(padding),
-        appState = appState,
-      )
-      Screen.Player -> PlayerScreen(
-        modifier = Modifier.padding(padding),
-        appState = appState,
-        streamer = appState.currentStreamer,
-      )
-      Screen.Search -> SearchScreen(
-        modifier = Modifier.padding(padding),
-        appState = appState,
-      )
+    AnimatedContent(
+      targetState = appState.currentScreen,
+      transitionSpec = {
+        val enteringPlayer = targetState == Screen.Player && initialState != Screen.Player
+        val leavingPlayer = initialState == Screen.Player && targetState != Screen.Player
+        when {
+          enteringPlayer -> (slideInHorizontally(animationSpec = tween(240)) { it / 6 } + fadeIn(animationSpec = tween(240)))
+            .togetherWith(fadeOut(animationSpec = tween(120)))
+          leavingPlayer -> fadeIn(animationSpec = tween(120))
+            .togetherWith(slideOutHorizontally(animationSpec = tween(240)) { it / 6 } + fadeOut(animationSpec = tween(240)))
+          else -> fadeIn(animationSpec = tween(140)).togetherWith(fadeOut(animationSpec = tween(140)))
+        }
+      },
+      label = "screen",
+      modifier = Modifier.fillMaxSize(),
+    ) { screen ->
+      when (screen) {
+        Screen.Home -> HomeScreen(
+          modifier = Modifier.padding(padding),
+          appState = appState,
+        )
+        Screen.Platform -> PlatformScreen(
+          modifier = Modifier.padding(padding),
+          appState = appState,
+        )
+        Screen.Player -> PlayerScreen(
+          modifier = Modifier.padding(padding),
+          appState = appState,
+          streamer = appState.currentStreamer,
+        )
+        Screen.Search -> SearchScreen(
+          modifier = Modifier.padding(padding),
+          appState = appState,
+        )
+      }
     }
   }
 }
@@ -135,6 +202,11 @@ private fun HubTopBar(
   onSearchClick: () -> Unit,
   simpleMode: Boolean,
   onSimpleModeToggle: () -> Unit,
+  simpleModeEnabled: Boolean,
+  showBilibiliLogin: Boolean,
+  bilibiliLoggedIn: Boolean,
+  onBilibiliLoginClick: () -> Unit,
+  onBilibiliLogoutClick: () -> Unit,
   showThemeToggle: Boolean,
   onThemeToggle: () -> Unit,
   showSearch: Boolean,
@@ -197,23 +269,52 @@ private fun HubTopBar(
         IconButton(onClick = onThemeToggle) {
           Icon(
              imageVector = if (isDark) Icons.Default.LightMode else Icons.Default.DarkMode,
-             contentDescription = "日夜模式",
-            tint = if (isDark) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
+              contentDescription = "日夜模式",
+             tint = if (isDark) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
           )
         }
       } else {
-        FilterChip(
+        if (showBilibiliLogin) {
+          TextButton(onClick = onBilibiliLoginClick) {
+            Text(text = if (bilibiliLoggedIn) "已登录" else "登录")
+          }
+          if (bilibiliLoggedIn) {
+            TextButton(onClick = onBilibiliLogoutClick) {
+              Text(text = "退出", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f))
+            }
+          }
+        }
+        SimpleModeToggleIcon(
+          enabled = simpleModeEnabled,
           selected = simpleMode,
           onClick = onSimpleModeToggle,
-          label = {
-            Icon(
-              imageVector = Icons.Default.ViewCompact,
-              contentDescription = "简易模式",
-              modifier = Modifier.padding(vertical = 2.dp),
-            )
-          },
         )
       }
     }
+  }
+}
+
+@Composable
+private fun SimpleModeToggleIcon(
+  enabled: Boolean,
+  selected: Boolean,
+  onClick: () -> Unit,
+  modifier: Modifier = Modifier,
+) {
+  val tint = when {
+    !enabled -> Color(0xFF9CA3AF)
+    selected -> MaterialTheme.colorScheme.primary
+    else -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
+  }
+  IconButton(
+    onClick = onClick,
+    enabled = enabled,
+    modifier = modifier,
+  ) {
+    Icon(
+      imageVector = Icons.Default.ViewCompact,
+      contentDescription = "简易模式",
+      tint = tint,
+    )
   }
 }

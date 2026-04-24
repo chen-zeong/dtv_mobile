@@ -65,6 +65,12 @@ fun HomeScreen(
   modifier: Modifier = Modifier,
 ) {
   val items = appState.followedStreamers
+  val displayItems = run {
+    val snapshot = items.toList()
+    val live = snapshot.filter { it.isLive }
+    val offline = snapshot.filterNot { it.isLive }
+    live + offline
+  }
   var refreshing by remember { mutableStateOf(false) }
   val scope = rememberCoroutineScope()
   val gridState = rememberLazyGridState()
@@ -106,7 +112,7 @@ fun HomeScreen(
     ) {
       item(span = { GridItemSpan(2) }) {
         LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-          lazyItems(items, key = { "${it.platform}-${it.roomId}" }) { streamer ->
+          lazyItems(displayItems, key = { "${it.platform}-${it.roomId}" }) { streamer ->
             HomeAvatarItem(
               nickname = streamer.name,
               avatarUrl = streamer.avatarUrl,
@@ -117,7 +123,7 @@ fun HomeScreen(
         }
       }
 
-      items(items, key = { "${it.platform}-${it.roomId}" }) { streamer ->
+      items(displayItems, key = { "${it.platform}-${it.roomId}" }) { streamer ->
         val itemKey = "${streamer.platform}-${streamer.roomId}"
         val isDragging = draggingKey == itemKey
         HomeStreamerCard(
@@ -155,11 +161,13 @@ fun HomeScreen(
 
                   dragOffset += dragAmount
 
-                  val fromIndex = items.indexOfFirst { "${it.platform}-${it.roomId}" == itemKey }
+                  val fromIndex = displayItems.indexOfFirst { "${it.platform}-${it.roomId}" == itemKey }
                   if (fromIndex < 0) return@detectDragGesturesAfterLongPress
 
                   val draggingInfo = gridState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == fromIndex + 1 }
                     ?: return@detectDragGesturesAfterLongPress
+                  val draggingStreamer = displayItems.getOrNull(fromIndex) ?: return@detectDragGesturesAfterLongPress
+                  val draggingIsLive = draggingStreamer.isLive
 
                   val draggingCenter = Offset(
                     x = draggingInfo.offset.x + dragOffset.x + draggingInfo.size.width / 2f,
@@ -168,9 +176,12 @@ fun HomeScreen(
 
                   val targetInfo = gridState.layoutInfo.visibleItemsInfo
                     .asSequence()
-                    .filter { it.index in 1..items.lastIndex + 1 }
+                    .filter { it.index in 1..displayItems.lastIndex + 1 }
                     .firstOrNull { info ->
                       if (info.index == draggingInfo.index) return@firstOrNull false
+                      val idx = info.index - 1
+                      val s = displayItems.getOrNull(idx) ?: return@firstOrNull false
+                      if (s.isLive != draggingIsLive) return@firstOrNull false
                       val left = info.offset.x.toFloat()
                       val top = info.offset.y.toFloat()
                       val right = left + info.size.width
@@ -180,13 +191,17 @@ fun HomeScreen(
 
                   val toIndex = targetInfo?.index?.minus(1) ?: return@detectDragGesturesAfterLongPress
                   if (toIndex == fromIndex) return@detectDragGesturesAfterLongPress
+                  val targetStreamer = displayItems.getOrNull(toIndex) ?: return@detectDragGesturesAfterLongPress
 
                   val diff = Offset(
                     x = (draggingInfo.offset.x - targetInfo.offset.x).toFloat(),
                     y = (draggingInfo.offset.y - targetInfo.offset.y).toFloat(),
                   )
 
-                  appState.moveFollowedStreamer(fromIndex = fromIndex, toIndex = toIndex)
+                  val fromBase = items.indexOfFirst { "${it.platform}-${it.roomId}" == itemKey }
+                  val toBase = items.indexOfFirst { "${it.platform}-${it.roomId}" == "${targetStreamer.platform}-${targetStreamer.roomId}" }
+                  if (fromBase < 0 || toBase < 0) return@detectDragGesturesAfterLongPress
+                  appState.moveFollowedStreamer(fromIndex = fromBase, toIndex = toBase)
                   dragOffset += diff
                   moveCount += 1
                 },

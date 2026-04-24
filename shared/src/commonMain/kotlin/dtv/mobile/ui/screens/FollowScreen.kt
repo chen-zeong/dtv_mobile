@@ -27,6 +27,12 @@ fun FollowScreen(
   modifier: Modifier = Modifier,
 ) {
   val items = appState.followedStreamers
+  val displayItems = run {
+    val snapshot = items.toList()
+    val live = snapshot.filter { it.isLive }
+    val offline = snapshot.filterNot { it.isLive }
+    live + offline
+  }
   var refreshing by remember { mutableStateOf(false) }
   val scope = rememberCoroutineScope()
 
@@ -57,7 +63,7 @@ fun FollowScreen(
       contentPadding = PaddingValues(bottom = 12.dp),
       verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-      items(items, key = { "${it.platform}-${it.roomId}" }) { s ->
+      items(displayItems, key = { "${it.platform}-${it.roomId}" }) { s ->
         StreamerCard(
           streamer = s,
           followed = true,

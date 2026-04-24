@@ -50,6 +50,8 @@ fun HomeStreamerCard(
   val accent = MaterialTheme.colorScheme.primary
   val cover = normalizeHttpUrl(streamer.coverUrl) ?: normalizeHttpUrl(streamer.avatarUrl)
   val avatar = normalizeHttpUrl(streamer.avatarUrl)
+  val offline = !streamer.isLive
+  val offlineOverlay = Color(0xFF9CA3AF).copy(alpha = 0.35f)
 
   Column(
     modifier = modifier
@@ -73,6 +75,9 @@ fun HomeStreamerCard(
         Box(modifier = Modifier.fillMaxWidth()) {
           if (cover != null) {
             NetworkImage(url = cover, contentDescription = streamer.title, modifier = Modifier.fillMaxWidth().aspectRatio(4f / 3f))
+            if (offline) {
+              Box(modifier = Modifier.matchParentSize().background(offlineOverlay))
+            }
           } else {
             Box(modifier = Modifier.fillMaxWidth().aspectRatio(4f / 3f), contentAlignment = Alignment.Center) {
               Text(text = streamer.name.take(1), style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurface)
@@ -88,25 +93,6 @@ fun HomeStreamerCard(
               ),
           )
         }
-      }
-
-      Surface(
-        modifier = Modifier
-          .align(Alignment.TopStart)
-          .padding(start = 14.dp, top = 14.dp),
-        shape = RoundedCornerShape(8.dp),
-        color = accent,
-        tonalElevation = 0.dp,
-        shadowElevation = 0.dp,
-      ) {
-        Text(
-          text = streamer.platform.title,
-          style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Black),
-          color = MaterialTheme.colorScheme.onPrimary,
-          modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-          maxLines = 1,
-          overflow = TextOverflow.Ellipsis,
-        )
       }
 
       if (streamer.viewerText.isNotBlank()) {
@@ -151,6 +137,9 @@ fun HomeStreamerCard(
         ) {
           if (avatar != null) {
             NetworkImage(url = avatar, contentDescription = streamer.name, modifier = Modifier.matchParentSize())
+            if (offline) {
+              Box(modifier = Modifier.matchParentSize().background(offlineOverlay))
+            }
           } else {
             Box(modifier = Modifier.matchParentSize(), contentAlignment = Alignment.Center) {
               Text(text = streamer.name.take(1), style = MaterialTheme.typography.titleSmall)

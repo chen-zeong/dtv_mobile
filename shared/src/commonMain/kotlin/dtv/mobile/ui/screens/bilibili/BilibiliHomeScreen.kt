@@ -44,11 +44,11 @@ import dtv.mobile.repo.PagedResult
 import dtv.mobile.state.AppState
 import dtv.mobile.state.SubscribedPartition
 import dtv.mobile.ui.components.CategoryPill
-import dtv.mobile.ui.components.BilibiliWebLoginSheet
 import dtv.mobile.ui.components.LazyGridLoadMoreEffect
 import dtv.mobile.ui.components.PullToRefreshBox
 import dtv.mobile.ui.components.StreamerCard
 import dtv.mobile.ui.components.StreamerCardSkeleton
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private const val PAGE_SIZE = 20
@@ -71,14 +71,12 @@ fun BilibiliHomeScreen(
   var page by remember { mutableIntStateOf(1) }
   var refreshing by remember { mutableStateOf(false) }
 
-  var showLoginSheet by remember { mutableStateOf(false) }
-  var loggedIn by remember { mutableStateOf(false) }
-
   val gridState = rememberLazyGridState()
   val scope = rememberCoroutineScope()
 
   suspend fun loadPage(reset: Boolean) {
     val cate2 = selectedCate2 ?: return
+    val hadItems = rooms.isNotEmpty()
     if (reset) {
       rooms = emptyList()
       hasMore = true
@@ -86,6 +84,7 @@ fun BilibiliHomeScreen(
     }
     if (!hasMore) return
     if (reset) loading = true else loadingMore = true
+    val startMs = if (reset && !hadItems) System.currentTimeMillis() else 0L
 
     val resp: PagedResult<Streamer> = appState.repo.fetchBilibiliLiveList(
       parentAreaId = cate2.parentAreaId,
@@ -105,12 +104,13 @@ fun BilibiliHomeScreen(
     rooms = merged
     hasMore = incoming.isNotEmpty() && addedCount > 0
     page += 1
+    if (reset && !hadItems) {
+      val elapsed = System.currentTimeMillis() - startMs
+      val remaining = 180L - elapsed
+      if (remaining > 0) delay(remaining)
+    }
     if (reset) loading = false else loadingMore = false
     if (reset) appState.platformSwitchLoading = false
-  }
-
-  LaunchedEffect(Unit) {
-    loggedIn = !appState.repo.getBilibiliCookie().isNullOrBlank()
   }
 
   LaunchedEffect(Unit) {
@@ -158,18 +158,6 @@ fun BilibiliHomeScreen(
     loadPage(reset = false)
   }
 
-  if (showLoginSheet) {
-    BilibiliWebLoginSheet(
-      onDismissRequest = { showLoginSheet = false },
-      onCookieCaptured = { cookieHeader ->
-        scope.launch {
-          appState.repo.mergeBilibiliCookie(cookieHeader)
-          loggedIn = !appState.repo.getBilibiliCookie().isNullOrBlank()
-        }
-      },
-    )
-  }
-
   if (showCate2Sheet) {
     ModalBottomSheet(onDismissRequest = { showCate2Sheet = false }) {
       val list = selectedCate1?.cate2List.orEmpty()
@@ -214,14 +202,6 @@ fun BilibiliHomeScreen(
     modifier = modifier.fillMaxSize(),
   ) {
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 6.dp)) {
-      Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-        TextButton(onClick = { showLoginSheet = true }) { Text(if (loggedIn) "已登录" else "登录", style = MaterialTheme.typography.titleMedium) }
-        if (loggedIn) {
-          TextButton(onClick = { scope.launch { appState.repo.clearBilibiliCookie(); loggedIn = false } }) { Text("退出") }
-        }
-      }
-
-      Spacer(modifier = Modifier.height(6.dp))
       LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
         items(categories, key = { it.parentAreaId }) { c1 ->
           CategoryPill(

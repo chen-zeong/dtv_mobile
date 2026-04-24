@@ -67,6 +67,8 @@ fun StreamerCard(
   val shape = RoundedCornerShape(18.dp)
   val coverRatio = 16f / 10f
   val cover = normalizeHttpUrl(streamer.coverUrl) ?: normalizeHttpUrl(streamer.avatarUrl)
+  val offline = !streamer.isLive
+  val offlineOverlay = Color(0xFF9CA3AF).copy(alpha = 0.35f)
   val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
   val liveBorder = highlightLiveBorder && streamer.isLive
 
@@ -102,6 +104,9 @@ fun StreamerCard(
             contentDescription = streamer.title,
             modifier = Modifier.fillMaxWidth().aspectRatio(coverRatio),
           )
+          if (offline) {
+            Box(modifier = Modifier.matchParentSize().background(offlineOverlay))
+          }
         } else {
           Text(
             text = streamer.name.take(1),
@@ -175,6 +180,9 @@ fun StreamerCard(
             } else {
               Text(streamer.name.take(1), color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.labelSmall)
             }
+            if (offline) {
+              Box(modifier = Modifier.matchParentSize().background(offlineOverlay))
+            }
           }
 
           Text(
@@ -204,6 +212,8 @@ private fun StreamerSearchCard(
   val shape = RoundedCornerShape(16.dp)
   val coverRatio = 16f / 10f
   val cover = normalizeHttpUrl(streamer.coverUrl) ?: normalizeHttpUrl(streamer.avatarUrl)
+  val offline = !streamer.isLive
+  val offlineOverlay = Color(0xFF9CA3AF).copy(alpha = 0.35f)
   val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
 
   val cardColor = if (isDark) Color(0xFF1A1A1A) else MaterialTheme.colorScheme.surface
@@ -238,6 +248,9 @@ private fun StreamerSearchCard(
             contentDescription = streamer.title,
             modifier = Modifier.fillMaxWidth().aspectRatio(coverRatio),
           )
+          if (offline) {
+            Box(modifier = Modifier.matchParentSize().background(offlineOverlay))
+          }
         } else {
           Text(
             text = streamer.name.take(1),
