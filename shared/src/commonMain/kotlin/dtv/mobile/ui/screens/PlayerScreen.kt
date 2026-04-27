@@ -42,9 +42,16 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -63,17 +70,22 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.TextUnit
+import androidx.compose.ui.unit.sp
 import dtv.mobile.model.Platform
 import dtv.mobile.model.Streamer
 import dtv.mobile.repo.DanmakuMessage
 import dtv.mobile.repo.DouyuPlayInfo
 import dtv.mobile.state.AppState
+import dtv.mobile.theme.DtvColors
 import dtv.mobile.ui.components.DtvBackground
 import dtv.mobile.ui.components.NetworkImage
 import dtv.mobile.ui.player.StreamPlayer
@@ -91,7 +103,10 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.offset
 import kotlin.math.roundToInt
@@ -99,6 +114,7 @@ import androidx.compose.runtime.snapshotFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.interaction.MutableInteractionSource
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -120,15 +136,12 @@ fun PlayerScreen(
   var danmakuEnabled by remember(streamer?.roomId) { mutableStateOf(true) }
   var danmakuMessages by remember(streamer?.roomId) { mutableStateOf<List<DanmakuMessage>>(emptyList()) }
   var danmakuMax by remember { mutableIntStateOf(200) }
-  var danmakuAreaFraction by remember(streamer?.roomId) { mutableStateOf(1f / 3f) }
   var videoAspectRatio by remember(streamer?.roomId) { mutableStateOf<Float?>(null) }
   var videoReady by remember(streamer?.roomId) { mutableStateOf(false) }
   var fullscreen by remember(streamer?.roomId) { mutableStateOf(false) }
+  var fullscreenEntry by remember(streamer?.roomId) { mutableStateOf(FullscreenEntry.None) }
 
   val scope = rememberCoroutineScope()
-
-  FullscreenEffect(enabled = fullscreen)
-  PlatformBackHandler(enabled = fullscreen) { fullscreen = false }
 
   DisposableEffect(Unit) {
     onDispose { appState.playerFullscreen = false }
@@ -187,7 +200,11 @@ fun PlayerScreen(
     loading = false
   }
 
-  LaunchedEffect(streamer?.roomId, streamer?.platform, danmakuEnabled, url) {
+  val blockKeywordsLower by remember {
+    derivedStateOf { appState.danmuBlockKeywords.map { it.lowercase() }.filter { it.isNotBlank() } }
+  }
+
+  LaunchedEffect(streamer?.roomId, streamer?.platform, danmakuEnabled, url, blockKeywordsLower) {
     val s = streamer ?: return@LaunchedEffect
     if (!danmakuEnabled) return@LaunchedEffect
     if (url == null) {
@@ -206,6 +223,10 @@ fun PlayerScreen(
     danmakuMessages = emptyList()
     try {
       flow.collectLatest { msg ->
+        if (blockKeywordsLower.isNotEmpty()) {
+          val contentLower = msg.content.lowercase()
+          if (blockKeywordsLower.any { contentLower.contains(it) }) return@collectLatest
+        }
         danmakuMessages = (danmakuMessages + msg).takeLast(danmakuMax)
       }
     } catch (t: Throwable) {
@@ -249,103 +270,153 @@ fun PlayerScreen(
     val isPortraitLayout = maxHeight >= maxWidth
     val isLandscapeLayout = !isPortraitLayout
 
-    if (showSettings && streamer != null) {
-      ModalBottomSheet(onDismissRequest = { showSettings = false }) {
-        Column(
-          modifier = Modifier
-            .padding(horizontal = 16.dp, vertical = 10.dp)
-            .verticalScroll(rememberScrollState()),
-          verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-          Text("播放设置", style = MaterialTheme.typography.titleMedium)
+    FullscreenEffect(
+      enabled = fullscreen,
+      lockLandscape = fullscreenEntry == FullscreenEntry.Manual,
+      exitToPortrait = fullscreenEntry == FullscreenEntry.ManualOff,
+    )
+    PlatformBackHandler(enabled = fullscreen) {
+      fullscreen = false
+      fullscreenEntry = FullscreenEntry.None
+    }
 
-          if (streamer.platform == Platform.Douyu || streamer.platform == Platform.Douyin || streamer.platform == Platform.Bilibili) {
-            Text("画质", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f))
-            when (streamer.platform) {
-              Platform.Douyu -> {
-                RowWrap(
-                  items = listOf("自动" to null) + (playInfo?.variants.orEmpty().map { it.name to it.name }),
-                  selected = selectedDouyuQuality,
-                  onSelect = {
-                    selectedDouyuQuality = it
-                    reloadUrl()
-                  },
-                )
-              }
-              Platform.Douyin -> {
-                RowWrap(
-                  items = listOf(
-                    "自动" to null,
-                    "原画" to "ORIGIN",
-                    "超清" to "FULL_HD1",
-                    "高清" to "HD1",
-                    "标清" to "SD1",
-                  ),
-                  selected = selectedDouyinQuality,
-                  onSelect = {
-                    selectedDouyinQuality = it
-                    reloadUrl()
-                  },
-                )
-              }
-              Platform.Bilibili -> {
-                RowWrapInt(
-                  items = listOf(
-                    "自动" to null,
-                    "原画" to 10000,
-                    "蓝光" to 400,
-                    "超清" to 250,
-                    "高清" to 150,
-                    "流畅" to 80,
-                  ),
-                  selected = selectedBilibiliQn,
-                  onSelect = {
-                    selectedBilibiliQn = it
-                    reloadUrl()
-                  },
-                )
-              }
-              else -> Unit
+    val settingsStreamer = streamer
+    val showSettingsDrawer = showSettings && settingsStreamer != null && fullscreen && isLandscapeLayout
+    val showSettingsSheet = showSettings && settingsStreamer != null && !showSettingsDrawer
+
+    val settingsContent: @Composable () -> Unit = settingsContent@{
+      val s = settingsStreamer ?: return@settingsContent
+      Column(
+        modifier = Modifier
+          .padding(horizontal = 16.dp, vertical = 10.dp)
+          .verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+      ) {
+        Text("播放设置", style = MaterialTheme.typography.titleMedium)
+
+        if (s.platform == Platform.Douyu || s.platform == Platform.Douyin || s.platform == Platform.Bilibili) {
+          Text("画质", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f))
+          when (s.platform) {
+            Platform.Douyu -> {
+              RowWrap(
+                items = listOf("自动" to null) + (playInfo?.variants.orEmpty().map { it.name to it.name }),
+                selected = selectedDouyuQuality,
+                onSelect = {
+                  selectedDouyuQuality = it
+                  reloadUrl()
+                },
+              )
             }
+            Platform.Douyin -> {
+              RowWrap(
+                items = listOf(
+                  "自动" to null,
+                  "原画" to "ORIGIN",
+                  "超清" to "FULL_HD1",
+                  "高清" to "HD1",
+                  "标清" to "SD1",
+                ),
+                selected = selectedDouyinQuality,
+                onSelect = {
+                  selectedDouyinQuality = it
+                  reloadUrl()
+                },
+              )
+            }
+            Platform.Bilibili -> {
+              RowWrapInt(
+                items = listOf(
+                  "自动" to null,
+                  "原画" to 10000,
+                  "蓝光" to 400,
+                  "超清" to 250,
+                  "高清" to 150,
+                  "流畅" to 80,
+                ),
+                selected = selectedBilibiliQn,
+                onSelect = {
+                  selectedBilibiliQn = it
+                  reloadUrl()
+                },
+              )
+            }
+            else -> Unit
           }
-
-          if (streamer.platform == Platform.Douyu) {
-            Text("线路", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f))
-            RowWrap(
-              items = listOf("自动" to null) + (playInfo?.cdns.orEmpty().map { it to it }),
-              selected = selectedDouyuCdn,
-              onSelect = {
-                selectedDouyuCdn = it
-                reloadUrl()
-              },
-            )
-          }
-
-          Text("弹幕", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f))
-          RowWrap(
-            items = listOf("开" to "on", "关" to "off"),
-            selected = if (danmakuEnabled) "on" else "off",
-            onSelect = { danmakuEnabled = it == "on" },
-          )
-
-          if (isLandscapeLayout) {
-            Text("弹幕位置", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f))
-            RowWrapFloat(
-              items = listOf(
-                "上方1/4" to 0.25f,
-                "上方1/3" to (1f / 3f),
-                "上方1/2" to 0.5f,
-                "上方3/4" to 0.75f,
-              ),
-              selected = danmakuAreaFraction,
-              onSelect = { danmakuAreaFraction = it },
-            )
-          }
-
-          SpacerLine()
         }
+
+        if (s.platform == Platform.Douyu) {
+          Text("线路", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f))
+          RowWrap(
+            items = listOf("自动" to null) + (playInfo?.cdns.orEmpty().map { it to it }),
+            selected = selectedDouyuCdn,
+            onSelect = {
+              selectedDouyuCdn = it
+              reloadUrl()
+            },
+          )
+        }
+
+        Text("弹幕", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f))
+        RowWrap(
+          items = listOf("开" to "on", "关" to "off"),
+          selected = if (danmakuEnabled) "on" else "off",
+          onSelect = { danmakuEnabled = it == "on" },
+        )
+
+        Text("弹幕字体大小", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f))
+        RowWrapFloat(
+          items = listOf(
+            "小" to 0.90f,
+            "中" to 1.00f,
+            "大" to 1.15f,
+          ),
+          selected = appState.danmakuFontScale,
+          onSelect = { appState.updateDanmakuFontScale(it) },
+        )
+
+        Text("弹幕透明度", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f))
+        RowWrapFloat(
+          items = listOf(
+            "100%" to 1.00f,
+            "80%" to 0.85f,
+            "60%" to 0.70f,
+            "40%" to 0.55f,
+          ),
+          selected = appState.danmakuOpacity,
+          onSelect = { appState.updateDanmakuOpacity(it) },
+        )
+
+        Text("弹幕显示区域", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f))
+        RowWrapFloat(
+          items = listOf(
+            "上1/4" to 0.25f,
+            "上1/2" to 0.5f,
+            "上3/4" to 0.75f,
+            "全屏" to 1.0f,
+          ),
+          selected = appState.danmakuAreaFraction,
+          onSelect = { appState.updateDanmakuAreaFraction(it) },
+        )
+
+        if (isLandscapeLayout) {
+          Text("横屏弹幕字体", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f))
+          RowWrapFloat(
+            items = listOf(
+              "小" to 1.0f,
+              "中" to 1.15f,
+              "大" to 1.30f,
+              "特大" to 1.45f,
+            ),
+            selected = appState.landscapeDanmakuFontScale,
+            onSelect = { appState.updateLandscapeDanmakuFontScale(it) },
+          )
+        }
+
+        SpacerLine()
       }
     }
+
+    PlatformBackHandler(enabled = showSettingsDrawer || showSettingsSheet) { showSettings = false }
 
     val effectiveAspect = videoAspectRatio?.takeIf { it > 0f }
     val isVideoAspectKnown = effectiveAspect != null
@@ -353,6 +424,25 @@ fun PlayerScreen(
     val isVerticalVideo = isVideoAspectKnown && (effectiveAspect!! < 1f)
     val isHorizontalVideo = isVideoAspectKnown && !isVerticalVideo
     val verticalFullBleed = !fullscreen && isVerticalVideo
+    val showFullPageLoading = !fullscreen &&
+      !verticalFullBleed &&
+      streamer?.isLive == true &&
+      url == null &&
+      error == null &&
+      loading
+
+    LaunchedEffect(isLandscapeLayout) {
+      // Rotating to landscape should behave like fullscreen (hide bottom bar, system bars).
+      if (isLandscapeLayout && !fullscreen && fullscreenEntry != FullscreenEntry.ManualOff) {
+        fullscreen = true
+        fullscreenEntry = FullscreenEntry.Auto
+      } else if (!isLandscapeLayout && fullscreenEntry == FullscreenEntry.Auto) {
+        fullscreen = false
+        fullscreenEntry = FullscreenEntry.None
+      } else if (!isLandscapeLayout && fullscreenEntry == FullscreenEntry.ManualOff) {
+        fullscreenEntry = FullscreenEntry.None
+      }
+    }
 
     val content: @Composable () -> Unit = {
       Column(
@@ -369,6 +459,18 @@ fun PlayerScreen(
             modifier = Modifier.fillMaxWidth(),
           )
           Spacer(modifier = Modifier.height(10.dp))
+        }
+
+        if (showFullPageLoading) {
+          Box(
+            modifier = Modifier
+              .fillMaxWidth()
+              .weight(1f),
+            contentAlignment = Alignment.Center,
+          ) {
+            CenteredLoadingIndicator()
+          }
+          return@Column
         }
 
         val videoSurfaceShape = RoundedCornerShape(0.dp)
@@ -493,7 +595,9 @@ fun PlayerScreen(
                   resetKey = streamer?.roomId,
                   messages = danmakuMessages,
                   showUser = false,
-                  areaFraction = danmakuAreaFraction,
+                  areaFraction = appState.danmakuAreaFraction,
+                  textScale = appState.landscapeDanmakuFontScale * appState.danmakuFontScale,
+                  opacity = appState.danmakuOpacity,
                   modifier = Modifier
                     .fillMaxSize()
                     .padding(10.dp),
@@ -502,8 +606,10 @@ fun PlayerScreen(
                 DanmakuOverlay(
                   messages = danmakuMessages,
                   showUser = true,
-                  areaFraction = danmakuAreaFraction,
+                  areaFraction = appState.danmakuAreaFraction,
                   transparentBackground = false,
+                  textScale = appState.danmakuFontScale,
+                  opacity = appState.danmakuOpacity,
                   modifier = Modifier
                     .fillMaxSize()
                     .padding(10.dp),
@@ -514,7 +620,15 @@ fun PlayerScreen(
             PlayerSideControlsOverlay(
               fullscreen = fullscreen,
               showFullscreen = isVideoAspectKnown && !isVerticalVideo,
-              onToggleFullscreen = { fullscreen = !fullscreen },
+              onToggleFullscreen = {
+                if (fullscreen) {
+                  fullscreen = false
+                  fullscreenEntry = if (isLandscapeLayout) FullscreenEntry.ManualOff else FullscreenEntry.None
+                } else {
+                  fullscreen = true
+                  fullscreenEntry = FullscreenEntry.Manual
+                }
+              },
               onOpenSettings = { showSettings = true },
               onReload = { reloadUrl() },
               modifier = Modifier
@@ -529,6 +643,7 @@ fun PlayerScreen(
             HubDanmakuPanel(
               messages = danmakuMessages,
               enhancedPortrait = isPortraitLayout,
+              textScale = appState.danmakuFontScale,
               modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
@@ -540,6 +655,84 @@ fun PlayerScreen(
     }
 
     if (fullscreen) content() else PlayerBackground(content = content)
+
+    PlayerSettingsDrawer(
+      visible = showSettingsDrawer,
+      onDismissRequest = { showSettings = false },
+    ) {
+      Surface(
+        modifier = Modifier.fillMaxSize(),
+        color = Color.Transparent,
+        tonalElevation = 0.dp,
+        shadowElevation = 0.dp,
+      ) {
+        settingsContent()
+      }
+    }
+
+    if (showSettingsSheet) {
+      ModalBottomSheet(onDismissRequest = { showSettings = false }) {
+        settingsContent()
+      }
+    }
+  }
+}
+
+private enum class FullscreenEntry {
+  None,
+  Auto,
+  Manual,
+  ManualOff,
+}
+
+@Composable
+private fun CenteredLoadingIndicator(
+  modifier: Modifier = Modifier,
+) {
+  val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+  val border = if (isDark) Color.White.copy(alpha = 0.10f) else MaterialTheme.colorScheme.outline.copy(alpha = 0.18f)
+  val bg = if (isDark) Color.White.copy(alpha = 0.06f) else MaterialTheme.colorScheme.surface.copy(alpha = 0.92f)
+  val fg = if (isDark) Color.White.copy(alpha = 0.85f) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f)
+
+  Surface(
+    modifier = modifier,
+    shape = RoundedCornerShape(18.dp),
+    color = bg,
+    border = BorderStroke(1.dp, border),
+    tonalElevation = 0.dp,
+    shadowElevation = 0.dp,
+  ) {
+    Row(
+      modifier = Modifier.padding(horizontal = 18.dp, vertical = 14.dp),
+      verticalAlignment = Alignment.CenterVertically,
+      horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+      CircularProgressIndicator(
+        strokeWidth = 3.dp,
+        modifier = Modifier.size(22.dp),
+        color = MaterialTheme.colorScheme.primary,
+      )
+
+      val t = rememberInfiniteTransition(label = "loadingDots")
+      val phase = t.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(animation = tween(durationMillis = 900, easing = LinearEasing)),
+        label = "loadingDotsPhase",
+      ).value
+      val dots = when (((phase * 3f).toInt()) % 4) {
+        0 -> ""
+        1 -> "."
+        2 -> ".."
+        else -> "..."
+      }
+
+      Text(
+        text = "加载中$dots",
+        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+        color = fg,
+      )
+    }
   }
 }
 
@@ -613,7 +806,10 @@ private fun PlayerHeader(
     val closeFg = Color.White.copy(alpha = 0.92f)
 
     BoxWithConstraints(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
-      val maxInfoWidth = ((maxWidth - closeSize - 10.dp).coerceAtLeast(0.dp)) * 0.66f
+      val available = (maxWidth - closeSize - 10.dp).coerceAtLeast(0.dp)
+      val infoWidth = (maxWidth * 0.66f)
+        .coerceAtMost(available)
+        .coerceAtLeast(200.dp.coerceAtMost(available))
       val avatarSize = closeSize - 8.dp
 
       Row(
@@ -622,7 +818,7 @@ private fun PlayerHeader(
       ) {
         Surface(
           modifier = Modifier
-            .widthIn(max = maxInfoWidth)
+            .width(infoWidth)
             .height(closeSize)
             .clip(infoShape),
           shape = infoShape,
@@ -773,7 +969,7 @@ private fun ControlFab(
   modifier: Modifier = Modifier,
 ) {
   Surface(
-    modifier = modifier.size(48.dp).clip(CircleShape).clickable(onClick = onClick),
+    modifier = modifier.size(38.dp).clip(CircleShape).clickable(onClick = onClick),
     shape = CircleShape,
     color = Color.White.copy(alpha = 0.10f),
     border = BorderStroke(1.dp, Color.White.copy(alpha = 0.12f)),
@@ -782,10 +978,83 @@ private fun ControlFab(
   ) {
     Box(contentAlignment = Alignment.Center) {
       Icon(
+        modifier = Modifier.size(25.dp),
         imageVector = icon,
         contentDescription = null,
         tint = Color.White.copy(alpha = 0.92f),
       )
+    }
+  }
+}
+
+@Composable
+private fun PlayerSettingsDrawer(
+  visible: Boolean,
+  onDismissRequest: () -> Unit,
+  modifier: Modifier = Modifier,
+  content: @Composable () -> Unit,
+) {
+  val nightScheme = remember {
+    darkColorScheme(
+      primary = DtvColors.NightAccent,
+      onPrimary = DtvColors.NightTextPrimary,
+      secondary = DtvColors.NightBgTertiary,
+      onSecondary = DtvColors.NightTextPrimary,
+      background = DtvColors.NightBgPrimary,
+      onBackground = DtvColors.NightTextPrimary,
+      surface = DtvColors.NightBgSecondary,
+      onSurface = DtvColors.NightTextPrimary,
+      outline = DtvColors.NightBorder,
+    )
+  }
+
+  Box(modifier = modifier.fillMaxSize()) {
+    AnimatedVisibility(
+      visible = visible,
+      enter = fadeIn(animationSpec = tween(durationMillis = 140)),
+      exit = fadeOut(animationSpec = tween(durationMillis = 140)),
+      label = "settings_scrim",
+    ) {
+      Box(
+        modifier = Modifier
+          .fillMaxSize()
+          .background(Color.Black.copy(alpha = 0.45f))
+          .clickable(
+            interactionSource = remember { MutableInteractionSource() },
+            indication = null,
+            onClick = onDismissRequest,
+          ),
+      )
+    }
+
+    AnimatedVisibility(
+      visible = visible,
+      enter = slideInHorizontally(animationSpec = tween(durationMillis = 220)) { -it } + fadeIn(animationSpec = tween(durationMillis = 140)),
+      exit = slideOutHorizontally(animationSpec = tween(durationMillis = 220)) { -it } + fadeOut(animationSpec = tween(durationMillis = 140)),
+      label = "settings_drawer",
+    ) {
+      Surface(
+        modifier = Modifier
+          .fillMaxHeight()
+          .fillMaxWidth(0.78f)
+          .widthIn(max = 320.dp),
+        shape = RoundedCornerShape(topEnd = 18.dp, bottomEnd = 18.dp),
+        color = Color.Black.copy(alpha = 0.72f),
+        contentColor = DtvColors.NightTextPrimary,
+        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.10f)),
+        tonalElevation = 0.dp,
+        shadowElevation = 6.dp,
+      ) {
+        Box(
+          modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.10f)),
+        ) {
+          MaterialTheme(colorScheme = nightScheme) {
+            content()
+          }
+        }
+      }
     }
   }
 }
@@ -796,6 +1065,8 @@ private fun DanmakuOverlay(
   showUser: Boolean,
   areaFraction: Float,
   transparentBackground: Boolean,
+  textScale: Float,
+  opacity: Float,
   modifier: Modifier = Modifier,
 ) {
   BoxWithConstraints(
@@ -815,6 +1086,8 @@ private fun DanmakuOverlay(
           modifier = Modifier.widthIn(max = maxBubbleWidth),
           maxLines = 1,
           compact = true,
+          textScale = textScale,
+          opacity = opacity,
         )
         SpacerLine(4.dp)
       }
@@ -831,15 +1104,18 @@ private fun DanmakuBubble(
   modifier: Modifier = Modifier,
   maxLines: Int = 1,
   compact: Boolean = false,
+  textScale: Float = 1f,
+  opacity: Float = 1f,
 ) {
   val displayUser = user.trim().ifBlank { "匿名" }
   val displayContent = content.trim()
+  val effectiveOpacity = opacity.coerceIn(0.35f, 1.0f)
 
   val text = buildAnnotatedString {
     if (showUser) {
       withStyle(
         SpanStyle(
-          color = Color(0xFFFFE082),
+          color = Color(0xFFFFE082).copy(alpha = 0.92f * effectiveOpacity),
           fontWeight = FontWeight.SemiBold,
         ),
       ) {
@@ -857,15 +1133,22 @@ private fun DanmakuBubble(
   Surface(
     modifier = modifier,
     shape = bubbleShape,
-    color = if (transparentBackground) Color.Transparent else Color.Black.copy(alpha = 0.26f),
+    color = if (transparentBackground) Color.Transparent else Color.Black.copy(alpha = 0.26f * effectiveOpacity),
     border = null,
     tonalElevation = 0.dp,
     shadowElevation = 0.dp,
   ) {
+    val base = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium)
+    val style =
+      if (textScale == 1f) base
+      else base.copy(
+        fontSize = if (base.fontSize == TextUnit.Unspecified) base.fontSize else base.fontSize * textScale,
+        lineHeight = if (base.lineHeight == TextUnit.Unspecified) base.lineHeight else base.lineHeight * textScale,
+      )
     Text(
       text = text,
-      style = MaterialTheme.typography.bodySmall,
-      color = Color.White.copy(alpha = 0.95f),
+      style = style,
+      color = Color.White.copy(alpha = 0.92f * effectiveOpacity),
       modifier = Modifier.padding(horizontal = hPad, vertical = vPad),
       maxLines = maxLines,
       overflow = TextOverflow.Ellipsis,
@@ -877,63 +1160,37 @@ private fun DanmakuBubble(
 private fun HubDanmakuPanel(
   messages: List<DanmakuMessage>,
   enhancedPortrait: Boolean = false,
+  textScale: Float = 1f,
   modifier: Modifier = Modifier,
 ) {
   val listState = rememberLazyListState()
-  val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
-  val shape = RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp, bottomStart = 0.dp, bottomEnd = 0.dp)
-  val itemSpacing = if (enhancedPortrait) 12.dp else 8.dp
-  val bgBrush = if (isDark) {
-    Brush.verticalGradient(
-      colors = listOf(
-        Color.White.copy(alpha = 0.08f),
-        Color.White.copy(alpha = 0.03f),
-      ),
-    )
-  } else {
-    Brush.verticalGradient(
-      colors = listOf(
-        MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
-        MaterialTheme.colorScheme.surface.copy(alpha = 0.75f),
-      ),
-    )
-  }
+  val itemSpacing = if (enhancedPortrait) 8.dp else 6.dp
 
   val display = remember(messages) { messages.asReversed() }
   LaunchedEffect(display.size) {
     if (display.isNotEmpty()) listState.scrollToItem(index = 0)
   }
 
-  Surface(
-    modifier = modifier.fillMaxWidth().clip(shape),
-    shape = shape,
-    color = Color.Transparent,
-    tonalElevation = 0.dp,
-    shadowElevation = 0.dp,
-    border = null,
+  LazyColumn(
+    modifier = modifier
+      .fillMaxWidth()
+      .fillMaxSize()
+      .padding(horizontal = 10.dp, vertical = 6.dp),
+    state = listState,
+    reverseLayout = true,
+    contentPadding = PaddingValues(0.dp),
+    verticalArrangement = Arrangement.spacedBy(itemSpacing),
   ) {
-    Box(modifier = Modifier.background(bgBrush)) {
-      LazyColumn(
-        modifier = Modifier
-          .fillMaxWidth()
-          .fillMaxSize()
-          .padding(horizontal = 10.dp, vertical = 10.dp),
-        state = listState,
-        reverseLayout = true,
-        contentPadding = PaddingValues(0.dp),
-        verticalArrangement = Arrangement.spacedBy(itemSpacing),
-      ) {
-        itemsIndexed(
-          display,
-          key = { index, msg -> "${msg.roomId}:${msg.user}:${msg.content}:$index" },
-        ) { _, msg ->
-          HubDanmakuRow(
-            user = msg.user.trim().ifBlank { "匿名" },
-            content = msg.content.trim(),
-            enhancedPortrait = enhancedPortrait,
-          )
-        }
-      }
+    itemsIndexed(
+      display,
+      key = { index, msg -> "${msg.roomId}:${msg.user}:${msg.content}:$index" },
+    ) { _, msg ->
+      HubDanmakuRow(
+        user = msg.user.trim().ifBlank { "匿名" },
+        content = msg.content.trim(),
+        enhancedPortrait = enhancedPortrait,
+        textScale = textScale,
+      )
     }
   }
 }
@@ -943,19 +1200,19 @@ private fun HubDanmakuRow(
   user: String,
   content: String,
   enhancedPortrait: Boolean = false,
+  textScale: Float = 1f,
   modifier: Modifier = Modifier,
 ) {
   val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
   val userChipBg = if (isDark) Color.White.copy(alpha = 0.10f) else MaterialTheme.colorScheme.surface
   val userChipBorder = if (isDark) null else BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.22f))
-  val userFg = if (isDark) Color(0xFF9CA3AF) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
-  val contentFg = if (isDark) Color.White.copy(alpha = 0.92f) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.9f)
-  val accent = remember(user) { accentColorForUser(user) }
+  val userFg = MaterialTheme.colorScheme.primary.copy(alpha = if (isDark) 0.72f else 0.90f)
+  val contentFg = if (isDark) Color.White.copy(alpha = 0.84f) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.9f)
 
   Row(
     modifier = modifier.fillMaxWidth(),
     verticalAlignment = Alignment.Top,
-    horizontalArrangement = Arrangement.spacedBy(if (enhancedPortrait) 10.dp else 8.dp),
+    horizontalArrangement = Arrangement.spacedBy(if (enhancedPortrait) 8.dp else 6.dp),
   ) {
     Surface(
       shape = RoundedCornerShape(8.dp),
@@ -965,25 +1222,17 @@ private fun HubDanmakuRow(
       shadowElevation = 0.dp,
     ) {
       Row(
-        modifier = Modifier.padding(horizontal = if (enhancedPortrait) 10.dp else 8.dp, vertical = if (enhancedPortrait) 5.dp else 3.dp),
+        modifier = Modifier.padding(horizontal = if (enhancedPortrait) 8.dp else 6.dp, vertical = if (enhancedPortrait) 4.dp else 2.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
       ) {
-        if (enhancedPortrait) {
-          Box(
-            modifier = Modifier
-              .size(8.dp)
-              .clip(CircleShape)
-              .background(accent),
-          )
-        }
         Text(
           text = user,
-          style = if (enhancedPortrait) {
-            MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold)
-          } else {
-            MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Black)
-          },
+          style = scaleTextStyle(
+            if (enhancedPortrait) MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold)
+            else MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+            textScale,
+          ),
           color = userFg,
           maxLines = 1,
           overflow = TextOverflow.Ellipsis,
@@ -993,24 +1242,19 @@ private fun HubDanmakuRow(
 
     Text(
       text = content,
-      style = if (enhancedPortrait) {
-        MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)
-      } else {
-        MaterialTheme.typography.bodySmall
-      },
+      style = scaleTextStyle(
+        if (enhancedPortrait) MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)
+        else MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
+        textScale,
+      ),
       color = contentFg,
       modifier = Modifier
         .weight(1f)
-        .padding(top = 1.dp),
+        .padding(top = 0.dp),
       maxLines = if (enhancedPortrait) 4 else 3,
       overflow = TextOverflow.Ellipsis,
     )
   }
-}
-
-private fun accentColorForUser(user: String): Color {
-  val hue = ((user.hashCode() % 360) + 360) % 360
-  return Color.hsv(hue.toFloat(), 0.65f, 0.90f)
 }
 
 @Composable
@@ -1019,6 +1263,8 @@ private fun ScrollingDanmakuOverlay(
   messages: List<DanmakuMessage>,
   showUser: Boolean,
   areaFraction: Float,
+  textScale: Float = 1f,
+  opacity: Float = 1f,
   modifier: Modifier = Modifier,
 ) {
   data class Active(
@@ -1031,7 +1277,6 @@ private fun ScrollingDanmakuOverlay(
   val active = remember(resetKey) { mutableStateListOf<Active>() }
   var lastCount by remember(resetKey) { mutableIntStateOf(0) }
   var nextTrack by remember(resetKey) { mutableIntStateOf(0) }
-  val trackCount = 8
   val maxActive = 30
 
   LaunchedEffect(messages.size) {
@@ -1053,18 +1298,33 @@ private fun ScrollingDanmakuOverlay(
             track = nextTrack,
           ),
         )
-        nextTrack = (nextTrack + 1) % trackCount
+        nextTrack += 1
+        if (nextTrack > 1_000_000) nextTrack = 0
       }
     }
     lastCount = messages.size
   }
 
   BoxWithConstraints(modifier = modifier) {
+    val density = LocalDensity.current
     val widthPx = constraints.maxWidth.toFloat().coerceAtLeast(1f)
     val heightPx = constraints.maxHeight.toFloat().coerceAtLeast(1f)
     val regionTopPx = heightPx * 0.04f
     val regionHeightPx = (heightPx * areaFraction).coerceAtLeast(1f)
     val usableHeightPx = (regionHeightPx - regionTopPx).coerceAtLeast(1f)
+
+    // Avoid overlap when text size changes: compute track count based on estimated bubble height.
+    val base = MaterialTheme.typography.bodySmall
+    val fontSizePx = with(density) {
+      (if (base.fontSize == TextUnit.Unspecified) 12.sp else base.fontSize).toPx()
+    }
+    val lineHeightPx = with(density) {
+      if (base.lineHeight == TextUnit.Unspecified) fontSizePx * 1.2f else base.lineHeight.toPx()
+    }
+    val vPadPx = with(density) { 4.dp.toPx() }
+    val minTrackHeightPx = ((lineHeightPx * textScale.coerceAtLeast(0.85f)) + vPadPx * 2f + with(density) { 2.dp.toPx() })
+      .coerceAtLeast(1f)
+    val trackCount = (usableHeightPx / minTrackHeightPx).toInt().coerceIn(3, 10)
     val trackHeightPx = usableHeightPx / trackCount
 
     active.forEach { item ->
@@ -1074,9 +1334,11 @@ private fun ScrollingDanmakuOverlay(
           content = item.content,
           showUser = showUser,
           transparentBackground = true,
+          textScale = textScale,
+          opacity = opacity,
           startX = widthPx,
           endX = -widthPx,
-          y = regionTopPx + trackHeightPx * item.track,
+          y = regionTopPx + trackHeightPx * (item.track % trackCount),
           onFinished = { active.remove(item) },
         )
       }
@@ -1090,6 +1352,8 @@ private fun ScrollingDanmakuItem(
   content: String,
   showUser: Boolean,
   transparentBackground: Boolean,
+  textScale: Float,
+  opacity: Float,
   startX: Float,
   endX: Float,
   y: Float,
@@ -1117,8 +1381,22 @@ private fun ScrollingDanmakuItem(
       transparentBackground = transparentBackground,
       maxLines = 1,
       compact = true,
+      textScale = textScale,
+      opacity = opacity,
     )
   }
+}
+
+private fun scaleTextStyle(
+  base: TextStyle,
+  scale: Float,
+): TextStyle {
+  val s = scale.coerceIn(0.85f, 1.3f)
+  if (s == 1f) return base
+  return base.copy(
+    fontSize = if (base.fontSize == TextUnit.Unspecified) base.fontSize else base.fontSize * s,
+    lineHeight = if (base.lineHeight == TextUnit.Unspecified) base.lineHeight else base.lineHeight * s,
+  )
 }
 
 @Composable

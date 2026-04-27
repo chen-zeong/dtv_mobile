@@ -12,10 +12,13 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Logout
+import androidx.compose.material.icons.filled.AccountCircle
+import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.DarkMode
+import androidx.compose.material.icons.filled.Devices
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.ViewCompact
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -25,7 +28,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.ScaffoldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -46,6 +48,7 @@ import dtv.mobile.ui.screens.HomeScreen
 import dtv.mobile.ui.screens.PlatformScreen
 import dtv.mobile.ui.screens.PlayerScreen
 import dtv.mobile.ui.screens.SearchScreen
+import dtv.mobile.ui.screens.SyncScreen
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.Color
 import dtv.mobile.ui.system.PlatformBackHandler
@@ -122,10 +125,25 @@ fun RootScaffold(appState: AppState) {
             ),
           )
         }
+        Screen.Sync -> {
+          CenterAlignedTopAppBar(
+            title = { Text(text = "数据同步") },
+            navigationIcon = {
+              IconButton(onClick = { appState.back() }) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+              }
+            },
+            colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+              containerColor = Color.Transparent,
+              scrolledContainerColor = Color.Transparent,
+            ),
+          )
+        }
         else -> {
           HubTopBar(
             title = if (appState.currentScreen == Screen.Home) "关注列表" else appState.selectedPlatform.title,
             onSearchClick = appState::openSearch,
+            onSyncClick = appState::openSync,
             simpleMode = appState.simpleModeForSelectedPlatform,
             onSimpleModeToggle = appState::toggleSimpleModeForSelectedPlatform,
             simpleModeEnabled = simpleModeEnabled,
@@ -141,12 +159,13 @@ fun RootScaffold(appState: AppState) {
             showThemeToggle = appState.currentScreen == Screen.Home,
             onThemeToggle = appState::toggleDayNight,
             showSearch = appState.currentScreen != Screen.Home,
+            showSync = appState.currentScreen == Screen.Home,
           )
         }
       }
     },
     bottomBar = {
-      if (!(appState.currentScreen == Screen.Player && appState.playerFullscreen)) {
+      if (appState.currentScreen != Screen.Sync && !(appState.currentScreen == Screen.Player && appState.playerFullscreen)) {
         PlatformBottomBar(
           selectedScreen = appState.dockSelectedScreen,
           selectedPlatform = appState.selectedPlatform,
@@ -191,6 +210,10 @@ fun RootScaffold(appState: AppState) {
           modifier = Modifier.padding(padding),
           appState = appState,
         )
+        Screen.Sync -> SyncScreen(
+          modifier = Modifier.padding(padding),
+          appState = appState,
+        )
       }
     }
   }
@@ -200,6 +223,7 @@ fun RootScaffold(appState: AppState) {
 private fun HubTopBar(
   title: String,
   onSearchClick: () -> Unit,
+  onSyncClick: () -> Unit,
   simpleMode: Boolean,
   onSimpleModeToggle: () -> Unit,
   simpleModeEnabled: Boolean,
@@ -210,6 +234,7 @@ private fun HubTopBar(
   showThemeToggle: Boolean,
   onThemeToggle: () -> Unit,
   showSearch: Boolean,
+  showSync: Boolean,
   modifier: Modifier = Modifier,
 ) {
   val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
@@ -220,7 +245,7 @@ private fun HubTopBar(
     shadowElevation = 0.dp,
   ) {
     Row(
-      modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+      modifier = Modifier.padding(start = 14.dp, end = 14.dp, top = 10.dp, bottom = 5.dp),
       horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
       Text(
@@ -265,6 +290,16 @@ private fun HubTopBar(
         Spacer(modifier = Modifier.weight(1f))
       }
 
+      if (showSync) {
+        IconButton(onClick = onSyncClick) {
+          Icon(
+            imageVector = Icons.Default.Devices,
+            contentDescription = "数据同步",
+            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
+          )
+        }
+      }
+
       if (showThemeToggle) {
         IconButton(onClick = onThemeToggle) {
           Icon(
@@ -275,13 +310,18 @@ private fun HubTopBar(
         }
       } else {
         if (showBilibiliLogin) {
-          TextButton(onClick = onBilibiliLoginClick) {
-            Text(text = if (bilibiliLoggedIn) "已登录" else "登录")
-          }
-          if (bilibiliLoggedIn) {
-            TextButton(onClick = onBilibiliLogoutClick) {
-              Text(text = "退出", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f))
-            }
+          IconButton(
+            onClick = if (bilibiliLoggedIn) onBilibiliLogoutClick else onBilibiliLoginClick,
+          ) {
+            Icon(
+              imageVector = if (bilibiliLoggedIn) Icons.AutoMirrored.Filled.Logout else Icons.Default.AccountCircle,
+              contentDescription = if (bilibiliLoggedIn) "退出登录" else "登录",
+              tint = if (bilibiliLoggedIn) {
+                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
+              } else {
+                MaterialTheme.colorScheme.primary
+              },
+            )
           }
         }
         SimpleModeToggleIcon(
@@ -312,7 +352,7 @@ private fun SimpleModeToggleIcon(
     modifier = modifier,
   ) {
     Icon(
-      imageVector = Icons.Default.ViewCompact,
+      imageVector = Icons.Default.Apps,
       contentDescription = "简易模式",
       tint = tint,
     )

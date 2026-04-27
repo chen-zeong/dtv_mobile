@@ -12,12 +12,16 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 
 @Composable
-actual fun FullscreenEffect(enabled: Boolean) {
+actual fun FullscreenEffect(
+  enabled: Boolean,
+  lockLandscape: Boolean,
+  exitToPortrait: Boolean,
+) {
   val view = LocalView.current
   val activity = view.context.findActivity() ?: return
   val window = activity.window
 
-  DisposableEffect(enabled) {
+  DisposableEffect(view, window, enabled, lockLandscape, exitToPortrait) {
     val controller = WindowCompat.getInsetsController(window, view)
     val prevBehavior = controller.systemBarsBehavior
     val prevOrientation = activity.requestedOrientation
@@ -25,10 +29,19 @@ actual fun FullscreenEffect(enabled: Boolean) {
 
     if (enabled) {
       controller.hide(WindowInsetsCompat.Type.systemBars())
-      activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+      // Some devices ignore hide() during rotation/layout. Post a second attempt.
+      view.post { controller.hide(WindowInsetsCompat.Type.systemBars()) }
+      if (lockLandscape) {
+        activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+      }
     } else {
       controller.show(WindowInsetsCompat.Type.systemBars())
-      activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+      view.post { controller.show(WindowInsetsCompat.Type.systemBars()) }
+      if (exitToPortrait) {
+        activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+      } else if (lockLandscape) {
+        activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+      }
     }
 
     onDispose {

@@ -25,6 +25,10 @@ class AppState(
   private val subscriptionStore: SubscriptionStore,
 ) {
   var themeMode: ThemeMode by mutableStateOf(ThemeMode.System)
+  var landscapeDanmakuFontScale: Float by mutableStateOf(1.2f)
+  var danmakuFontScale: Float by mutableStateOf(1.0f)
+  var danmakuOpacity: Float by mutableStateOf(1.0f)
+  var danmakuAreaFraction: Float by mutableStateOf(0.5f)
   var platformSwitchLoading: Boolean by mutableStateOf(false)
   var selectedPlatform: Platform by mutableStateOf(Platform.Douyu)
   var currentScreen: Screen by mutableStateOf(Screen.Home)
@@ -35,12 +39,20 @@ class AppState(
   var currentPartition: SubscribedPartition? by mutableStateOf(null)
 
   val followedStreamers = mutableStateListOf<Streamer>()
+  val pinnedFollowedStreamerKeys = mutableStateListOf<String>()
   val subscribedPartitions = mutableStateListOf<SubscribedPartition>()
+  val danmuBlockKeywords = mutableStateListOf<String>()
   private val simpleModeByPlatform = mutableStateMapOf<Platform, Boolean>()
 
   init {
     followedStreamers.addAll(subscriptionStore.loadFollowedStreamers())
+    pinnedFollowedStreamerKeys.addAll(subscriptionStore.loadPinnedFollowedStreamerKeys())
     subscribedPartitions.addAll(subscriptionStore.loadSubscribedPartitions())
+    danmuBlockKeywords.addAll(subscriptionStore.loadDanmuBlockKeywords())
+    landscapeDanmakuFontScale = subscriptionStore.loadLandscapeDanmakuFontScale()
+    danmakuFontScale = subscriptionStore.loadDanmakuFontScale()
+    danmakuOpacity = subscriptionStore.loadDanmakuOpacity()
+    danmakuAreaFraction = subscriptionStore.loadDanmakuAreaFraction()
 
     subscriptionStore.loadSimpleModeByPlatform().forEach { entry ->
       simpleModeByPlatform[entry.platform] = entry.enabled
@@ -62,10 +74,46 @@ class AppState(
     val index = followedStreamers.indexOfFirst { streamerKey(it) == key }
     if (index >= 0) {
       followedStreamers.removeAt(index)
+      if (pinnedFollowedStreamerKeys.remove(key)) {
+        subscriptionStore.savePinnedFollowedStreamerKeys(pinnedFollowedStreamerKeys.toList())
+      }
     } else {
       followedStreamers.add(streamer)
     }
     subscriptionStore.saveFollowedStreamers(followedStreamers.toList())
+  }
+
+  fun setPinnedFollowedStreamers(keys: List<String>) {
+    val trimmed = keys.asSequence().map { it.trim() }.filter { it.isNotEmpty() }.toList()
+    pinnedFollowedStreamerKeys.clear()
+    pinnedFollowedStreamerKeys.addAll(trimmed.distinct())
+    subscriptionStore.savePinnedFollowedStreamerKeys(pinnedFollowedStreamerKeys.toList())
+  }
+
+  fun removePinnedFollowedStreamer(key: String) {
+    if (pinnedFollowedStreamerKeys.remove(key)) {
+      subscriptionStore.savePinnedFollowedStreamerKeys(pinnedFollowedStreamerKeys.toList())
+    }
+  }
+
+  fun updateLandscapeDanmakuFontScale(value: Float) {
+    landscapeDanmakuFontScale = value.coerceIn(0.85f, 2.0f)
+    subscriptionStore.saveLandscapeDanmakuFontScale(landscapeDanmakuFontScale)
+  }
+
+  fun updateDanmakuFontScale(value: Float) {
+    danmakuFontScale = value.coerceIn(0.85f, 1.3f)
+    subscriptionStore.saveDanmakuFontScale(danmakuFontScale)
+  }
+
+  fun updateDanmakuOpacity(value: Float) {
+    danmakuOpacity = value.coerceIn(0.35f, 1.0f)
+    subscriptionStore.saveDanmakuOpacity(danmakuOpacity)
+  }
+
+  fun updateDanmakuAreaFraction(value: Float) {
+    danmakuAreaFraction = value.coerceIn(0.25f, 1.0f)
+    subscriptionStore.saveDanmakuAreaFraction(danmakuAreaFraction)
   }
 
   fun toggleTheme() {
@@ -149,6 +197,66 @@ class AppState(
     subscriptionStore.saveSubscribedPartitions(subscribedPartitions.toList())
   }
 
+  private fun normalizeDanmuBlockKeywords(keywords: List<String>): List<String> {
+    val seen = HashSet<String>()
+    val out = ArrayList<String>()
+    for (raw in keywords) {
+      val trimmed = raw.trim()
+      if (trimmed.isEmpty()) continue
+      val normalized = trimmed.take(40)
+      val key = normalized.lowercase()
+      if (!seen.add(key)) continue
+      out.add(normalized)
+      if (out.size >= 40) break
+    }
+    return out
+  }
+
+  fun setDanmuBlockKeywords(keywords: List<String>) {
+    val next = normalizeDanmuBlockKeywords(keywords)
+    danmuBlockKeywords.clear()
+    danmuBlockKeywords.addAll(next)
+    subscriptionStore.saveDanmuBlockKeywords(next)
+  }
+
+  fun mergeDanmuBlockKeywords(keywords: List<String>): Int {
+    val existing = danmuBlockKeywords.mapTo(HashSet()) { it.lowercase() }
+    val merged = danmuBlockKeywords.toMutableList()
+    var added = 0
+    for (raw in keywords) {
+      val trimmed = raw.trim()
+      if (trimmed.isEmpty()) continue
+      val normalized = trimmed.take(40)
+      val key = normalized.lowercase()
+      if (!existing.add(key)) continue
+      merged.add(normalized)
+      added += 1
+      if (merged.size >= 40) break
+    }
+    if (added > 0) setDanmuBlockKeywords(merged)
+    return added
+  }
+
+  fun mergeFollowedStreamers(incoming: List<Streamer>): Int {
+    if (incoming.isEmpty()) return 0
+    val existing = followedStreamers.asSequence().map { streamerKey(it) }.toHashSet()
+    val added = incoming.filter { existing.add(streamerKey(it)) }
+    if (added.isEmpty()) return 0
+    followedStreamers.addAll(added)
+    subscriptionStore.saveFollowedStreamers(followedStreamers.toList())
+    return added.size
+  }
+
+  fun mergeSubscribedPartitions(incoming: List<SubscribedPartition>): Int {
+    if (incoming.isEmpty()) return 0
+    val existing = subscribedPartitions.asSequence().map { partitionKey(it) }.toHashSet()
+    val added = incoming.filter { existing.add(partitionKey(it)) }
+    if (added.isEmpty()) return 0
+    subscribedPartitions.addAll(added)
+    subscriptionStore.saveSubscribedPartitions(subscribedPartitions.toList())
+    return added.size
+  }
+
   fun openHome() {
     currentScreen = Screen.Home
   }
@@ -177,6 +285,10 @@ class AppState(
     currentScreen = Screen.Search
   }
 
+  fun openSync() {
+    currentScreen = Screen.Sync
+  }
+
   fun back() {
     when (currentScreen) {
       Screen.Home -> Unit
@@ -191,13 +303,14 @@ class AppState(
         currentScreen = searchReturnScreen ?: Screen.Home
         searchReturnScreen = null
       }
+      Screen.Sync -> currentScreen = Screen.Home
     }
   }
 }
 
 enum class ThemeMode { System, Light, Dark }
 
-enum class Screen { Home, Platform, Player, Search }
+enum class Screen { Home, Platform, Player, Search, Sync }
 
 @Composable
 fun rememberAppState(

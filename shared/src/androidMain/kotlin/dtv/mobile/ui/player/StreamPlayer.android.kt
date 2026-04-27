@@ -18,7 +18,6 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import dtv.mobile.util.AppLog
-import android.view.View
 
 @Composable
 actual fun StreamPlayer(
@@ -136,42 +135,18 @@ actual fun StreamPlayer(
     modifier = modifier,
     factory = {
       PlayerView(it).apply {
-        useController = true
-        controllerAutoShow = true
+        useController = false
+        controllerAutoShow = false
         setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
         resizeMode = if (zoomToFill) AspectRatioFrameLayout.RESIZE_MODE_ZOOM else AspectRatioFrameLayout.RESIZE_MODE_FIT
         this.player = player
-
-        applyControls(fullscreen = fullscreen, liveMode = liveMode)
       }
     },
     update = { view ->
       view.resizeMode = if (zoomToFill) AspectRatioFrameLayout.RESIZE_MODE_ZOOM else AspectRatioFrameLayout.RESIZE_MODE_FIT
-      view.useController = true
-      view.controllerAutoShow = true
+      view.useController = false
+      view.controllerAutoShow = false
       view.player = player
-
-      view.applyControls(fullscreen = fullscreen, liveMode = liveMode)
     },
   )
-}
-
-private fun PlayerView.applyControls(fullscreen: Boolean, liveMode: Boolean) {
-  // Live streams: hide seek/time UI and skip buttons (no progress bar or +/-15s hints).
-  val hideSeekUi = fullscreen || liveMode
-
-  setShowPreviousButton(!hideSeekUi)
-  setShowNextButton(!hideSeekUi)
-  setShowRewindButton(!hideSeekUi)
-  setShowFastForwardButton(!hideSeekUi)
-
-  val visibility = if (hideSeekUi) View.GONE else View.VISIBLE
-
-  findViewById<View?>(androidx.media3.ui.R.id.exo_progress)?.visibility = visibility
-  findViewById<View?>(androidx.media3.ui.R.id.exo_position)?.visibility = visibility
-  findViewById<View?>(androidx.media3.ui.R.id.exo_duration)?.visibility = visibility
-  findViewById<View?>(androidx.media3.ui.R.id.exo_rew)?.visibility = visibility
-  findViewById<View?>(androidx.media3.ui.R.id.exo_ffwd)?.visibility = visibility
-  findViewById<View?>(androidx.media3.ui.R.id.exo_prev)?.visibility = visibility
-  findViewById<View?>(androidx.media3.ui.R.id.exo_next)?.visibility = visibility
 }

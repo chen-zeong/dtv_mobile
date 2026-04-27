@@ -19,14 +19,15 @@ internal object DtvColors {
   val DayBorder = Color(0xFFE5E7EB)
 
   // night
-  val NightBgPrimary = Color(0xFF0D0D0D)
-  val NightBgSecondary = Color(0xFF1A1A1A)
-  val NightBgTertiary = Color(0xFF252525)
+  // A slightly cooler, softer dark palette for better readability.
+  val NightBgPrimary = Color(0xFF0B0F14)
+  val NightBgSecondary = Color(0xFF121720)
+  val NightBgTertiary = Color(0xFF1A2230)
   val NightTextPrimary = Color(0xFFF9FAFB)
   val NightTextSecondary = Color(0xFF9CA3AF)
   val NightAccent = HubAccent
   val NightAccentHover = HubAccentHover
-  val NightBorder = Color(0xFF262626)
+  val NightBorder = Color(0xFF263244)
 
   val StatusLive = Color(0xFFFF3E3E)
 }

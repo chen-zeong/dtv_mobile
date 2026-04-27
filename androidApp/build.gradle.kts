@@ -5,6 +5,16 @@ plugins {
   id("org.jetbrains.compose")
 }
 
+import java.util.Properties
+
+val keystoreProperties = Properties()
+val keystorePropertiesFile = file("keystore.properties")
+val hasReleaseKeystore = keystorePropertiesFile.exists().also { exists ->
+  if (exists) {
+    keystorePropertiesFile.inputStream().use { keystoreProperties.load(it) }
+  }
+}
+
 android {
   namespace = "dtv.mobile.android"
   compileSdk = 36
@@ -31,6 +41,24 @@ android {
 
   kotlinOptions {
     jvmTarget = "17"
+  }
+
+  signingConfigs {
+    create("release") {
+      if (hasReleaseKeystore) {
+        storeFile = file(keystoreProperties.getProperty("storeFile"))
+        storePassword = keystoreProperties.getProperty("storePassword")
+        keyAlias = keystoreProperties.getProperty("keyAlias")
+        keyPassword = keystoreProperties.getProperty("keyPassword")
+      }
+    }
+  }
+
+  buildTypes {
+    getByName("release") {
+      isMinifyEnabled = false
+      signingConfig = signingConfigs.getByName("release")
+    }
   }
 }
 

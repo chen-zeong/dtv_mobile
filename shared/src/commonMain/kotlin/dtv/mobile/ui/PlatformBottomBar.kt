@@ -63,7 +63,7 @@ fun PlatformBottomBar(
       modifier = Modifier
         .fillMaxWidth()
         .navigationBarsPadding()
-        .padding(vertical = 6.dp),
+        .padding(vertical = 3.dp),
       horizontalArrangement = Arrangement.SpaceAround,
     ) {
       DockItem(
@@ -120,10 +120,10 @@ private fun RowScope.DockItem(
     modifier = Modifier
       .weight(1f)
       .clickable { onClick() }
-      .defaultMinSize(minHeight = 64.dp)
-      .padding(vertical = 6.dp),
+      .defaultMinSize(minHeight = 58.dp)
+      .padding(vertical = 3.dp),
     horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
-    verticalArrangement = Arrangement.spacedBy(4.dp),
+    verticalArrangement = Arrangement.spacedBy(3.dp),
   ) {
     Surface(
       shape = RoundedCornerShape(14.dp),
@@ -131,7 +131,7 @@ private fun RowScope.DockItem(
       tonalElevation = 0.dp,
       shadowElevation = 0.dp,
     ) {
-      Box(modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
+      Box(modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)) {
         Box(modifier = Modifier.graphicsLayer(scaleX = scale, scaleY = scale)) {
           icon()
         }

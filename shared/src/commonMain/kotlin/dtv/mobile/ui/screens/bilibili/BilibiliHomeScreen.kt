@@ -201,7 +201,7 @@ fun BilibiliHomeScreen(
     },
     modifier = modifier.fillMaxSize(),
   ) {
-    Column(modifier = Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 6.dp)) {
+    Column(modifier = Modifier.fillMaxSize().padding(start = 14.dp, end = 14.dp, top = 6.dp)) {
       LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
         items(categories, key = { it.parentAreaId }) { c1 ->
           CategoryPill(
@@ -264,7 +264,7 @@ fun BilibiliHomeScreen(
         modifier = Modifier.fillMaxSize(),
         state = gridState,
         columns = GridCells.Fixed(2),
-        contentPadding = PaddingValues(bottom = 12.dp),
+        contentPadding = PaddingValues(bottom = 0.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
       ) {

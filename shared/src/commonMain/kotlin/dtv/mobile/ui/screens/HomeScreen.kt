@@ -7,6 +7,8 @@ import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -22,9 +24,18 @@ import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -39,7 +50,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.Color
@@ -71,6 +81,14 @@ fun HomeScreen(
     val offline = snapshot.filterNot { it.isLive }
     live + offline
   }
+  val pinnedKeys = appState.pinnedFollowedStreamerKeys.toList()
+  val pinnedStreamers = run {
+    val snapshot = pinnedKeys.mapNotNull { key -> displayItems.firstOrNull { "${it.platform.name}:${it.roomId}" == key } }
+    val live = snapshot.filter { it.isLive }
+    val offline = snapshot.filterNot { it.isLive }
+    live + offline
+  }
+  var showPinnedPicker by remember { mutableStateOf(false) }
   var refreshing by remember { mutableStateOf(false) }
   val scope = rememberCoroutineScope()
   val gridState = rememberLazyGridState()
@@ -106,19 +124,22 @@ fun HomeScreen(
       modifier = Modifier.fillMaxSize(),
       state = gridState,
       columns = GridCells.Fixed(2),
-      contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 9.dp, bottom = 92.dp),
+      contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 4.dp, bottom = 92.dp),
       horizontalArrangement = Arrangement.spacedBy(16.dp),
-      verticalArrangement = Arrangement.spacedBy(18.dp),
+      verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
       item(span = { GridItemSpan(2) }) {
         LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-          lazyItems(displayItems, key = { "${it.platform}-${it.roomId}" }) { streamer ->
-            HomeAvatarItem(
+          lazyItems(pinnedStreamers, key = { "${it.platform}-${it.roomId}" }) { streamer ->
+            PinnedAvatarItem(
               nickname = streamer.name,
               avatarUrl = streamer.avatarUrl,
               isLive = streamer.isLive,
               onClick = { appState.openPlayer(streamer) },
             )
+          }
+          item(key = "pinned-add") {
+            PinnedAddItem(onClick = { showPinnedPicker = true })
           }
         }
       }
@@ -211,9 +232,21 @@ fun HomeScreen(
       }
 
       item(span = { GridItemSpan(2) }) {
-        EndOfFeedCard(modifier = Modifier.padding(top = 8.dp))
+        Spacer(modifier = Modifier.height(8.dp))
       }
     }
+  }
+
+  if (showPinnedPicker) {
+    PinnedStreamerPickerDialog(
+      items = displayItems,
+      initialSelectedKeys = pinnedKeys,
+      onDismiss = { showPinnedPicker = false },
+      onConfirm = { keys ->
+        appState.setPinnedFollowedStreamers(keys)
+        showPinnedPicker = false
+      },
+    )
   }
 }
 
@@ -283,43 +316,146 @@ private fun HomeAvatarItem(
 }
 
 @Composable
-private fun EndOfFeedCard(
+private fun PinnedAvatarItem(
+  nickname: String,
+  avatarUrl: String?,
+  isLive: Boolean,
+  onClick: () -> Unit,
   modifier: Modifier = Modifier,
 ) {
-  val shape = RoundedCornerShape(48.dp)
-  val borderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)
+  HomeAvatarItem(
+    nickname = nickname,
+    avatarUrl = avatarUrl,
+    isLive = isLive,
+    onClick = onClick,
+    modifier = modifier,
+  )
+}
 
-  Surface(
+@Composable
+private fun PinnedAddItem(
+  onClick: () -> Unit,
+  modifier: Modifier = Modifier,
+) {
+  val outline = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)
+  Column(
     modifier = modifier
-      .fillMaxWidth()
-      .height(140.dp)
-      .clip(shape)
-      .drawBehind {
-        val strokeWidth = 2.dp.toPx()
-        drawRoundRect(
-          color = borderColor,
-          style = Stroke(
-            width = strokeWidth,
-            pathEffect = PathEffect.dashPathEffect(floatArrayOf(14.dp.toPx(), 10.dp.toPx()), 0f),
-          ),
-          cornerRadius = CornerRadius(x = 48.dp.toPx(), y = 48.dp.toPx()),
-        )
-      },
-    shape = shape,
-    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.06f),
-    tonalElevation = 0.dp,
-    shadowElevation = 0.dp,
+      .width(60.dp)
+      .clickable(onClick = onClick),
+    horizontalAlignment = Alignment.CenterHorizontally,
+    verticalArrangement = Arrangement.spacedBy(6.dp),
   ) {
-    Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
-      Text(
-        text = "THE END OF FEED",
-        style = MaterialTheme.typography.labelSmall.copy(
-          fontWeight = FontWeight.Black,
-          fontStyle = FontStyle.Italic,
-          letterSpacing = 0.35.sp,
-        ),
-        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.35f),
+    Box(
+      modifier = Modifier
+        .size(56.dp)
+        .clip(CircleShape)
+        .drawBehind {
+          val strokeWidth = 1.5.dp.toPx()
+          val radius = (size.minDimension - strokeWidth) / 2f
+          drawCircle(
+            color = outline,
+            radius = radius,
+            style = Stroke(
+              width = strokeWidth,
+              pathEffect = PathEffect.dashPathEffect(floatArrayOf(10.dp.toPx(), 8.dp.toPx()), 0f),
+            ),
+          )
+        },
+      contentAlignment = Alignment.Center,
+    ) {
+      Icon(
+        imageVector = Icons.Default.Add,
+        contentDescription = "添加置顶",
+        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f),
       )
     }
+    Text(
+      text = "添加",
+      maxLines = 1,
+      overflow = TextOverflow.Ellipsis,
+      style = MaterialTheme.typography.labelSmall,
+      color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f),
+    )
   }
 }
+
+@Composable
+private fun PinnedStreamerPickerDialog(
+  items: List<dtv.mobile.model.Streamer>,
+  initialSelectedKeys: List<String>,
+  onDismiss: () -> Unit,
+  onConfirm: (List<String>) -> Unit,
+) {
+  var selected by remember { mutableStateOf(initialSelectedKeys.toSet()) }
+  val scrollState = rememberScrollState()
+
+  AlertDialog(
+    onDismissRequest = onDismiss,
+    title = { Text("选择置顶主播") },
+    text = {
+      Column(
+        modifier = Modifier.verticalScroll(scrollState),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+      ) {
+        if (items.isEmpty()) {
+          Text("暂无关注主播。", style = MaterialTheme.typography.bodyMedium)
+        } else {
+          Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            items.forEach { streamer ->
+              val key = "${streamer.platform.name}:${streamer.roomId}"
+              val checked = selected.contains(key)
+              Row(
+                modifier = Modifier
+                  .fillMaxWidth()
+                  .clip(RoundedCornerShape(12.dp))
+                  .clickable {
+                    selected = if (checked) selected - key else selected + key
+                  }
+                  .padding(horizontal = 10.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+              ) {
+                Checkbox(
+                  checked = checked,
+                  onCheckedChange = { next ->
+                    selected = if (next) selected + key else selected - key
+                  },
+                )
+                val avatar = normalizeHttpUrl(streamer.avatarUrl)
+                Box(
+                  modifier = Modifier
+                    .size(34.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                  contentAlignment = Alignment.Center,
+                ) {
+                  if (avatar != null) {
+                    NetworkImage(url = avatar, contentDescription = streamer.name, modifier = Modifier.fillMaxSize())
+                  } else {
+                    Text(text = streamer.name.take(1), style = MaterialTheme.typography.titleMedium)
+                  }
+                }
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                  Text(streamer.name, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                  Text(
+                    "${streamer.platform.title} · ${if (streamer.isLive) "直播中" else "未开播"}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
+                  )
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    confirmButton = {
+      Button(onClick = { onConfirm(selected.toList()) }) { Text("完成") }
+    },
+    dismissButton = {
+      FilledTonalButton(onClick = onDismiss) { Text("取消") }
+    },
+  )
+}
+
+// (removed) end-of-feed footer

@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="2400" viewBox="0 0 1080 2400">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0b1220"/>
+      <stop offset="100%" stop-color="#111827"/>
+    </linearGradient>
+  </defs>
+  <rect width="1080" height="2400" rx="72" fill="url(#bg)"/>
+  <rect x="90" y="240" width="900" height="560" rx="36" fill="#030712" stroke="#374151" stroke-width="6"/>
+  <polygon points="500,455 500,585 635,520" fill="#e5e7eb" opacity="0.9"/>
+  <rect x="90" y="860" width="900" height="920" rx="36" fill="#030712" stroke="#374151" stroke-width="6"/>
+  <text x="540" y="1420" text-anchor="middle" font-family="system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif" font-size="56" fill="#e5e7eb">Screenshot Placeholder</text>
+  <text x="540" y="1500" text-anchor="middle" font-family="system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif" font-size="40" fill="#9ca3af">Player</text>
+  <text x="540" y="2260" text-anchor="middle" font-family="system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif" font-size="30" fill="#6b7280">Replace: docs/screenshots/player.svg</text>
+</svg>
+

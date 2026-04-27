@@ -15,6 +15,7 @@ import androidx.compose.ui.graphics.luminance
 @Composable
 fun DtvBackground(content: @Composable () -> Unit) {
   val bg = MaterialTheme.colorScheme.background
+  val surface = MaterialTheme.colorScheme.surface
   val accent = MaterialTheme.colorScheme.primary
   val isDark = bg.luminance() < 0.35f
 
@@ -36,6 +37,7 @@ fun DtvBackground(content: @Composable () -> Unit) {
         topLeft = Offset(0f, 0f),
         bottomRight = Offset(size.width, size.height),
         accent = accent,
+        surface = surface,
         isDark = isDark,
       )
     }
@@ -47,6 +49,7 @@ private fun DrawScope.drawMesh(
   topLeft: Offset,
   bottomRight: Offset,
   accent: Color,
+  surface: Color,
   isDark: Boolean,
 ) {
   val w = bottomRight.x - topLeft.x
@@ -54,7 +57,7 @@ private fun DrawScope.drawMesh(
 
   // Two subtle radial "mesh" blobs inspired by `--page-mesh` in the desktop CSS.
   val a1 = if (isDark) accent.copy(alpha = 0.10f) else accent.copy(alpha = 0.06f)
-  val a2 = if (isDark) Color.Black.copy(alpha = 0.30f) else Color.Black.copy(alpha = 0.05f)
+  val a2 = if (isDark) surface.copy(alpha = 0.55f) else Color.Black.copy(alpha = 0.05f)
   val a3 = if (isDark) accent.copy(alpha = 0.06f) else Color.Black.copy(alpha = 0.03f)
 
   fun blob(center: Offset, radius: Float, color: Color) {

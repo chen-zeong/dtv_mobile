@@ -11,6 +11,10 @@
 /androidApp/build/
 /shared/build/
 
+# Android release signing (keep local only)
+/androidApp/keystore.properties
+/androidApp/keystore/
+
 **/out/
 **/.DS_Store
 
