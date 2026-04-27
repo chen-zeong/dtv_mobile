@@ -11,6 +11,9 @@ data class SimpleModeEntry(
 )
 
 interface SubscriptionStore {
+  fun loadThemeMode(): ThemeMode
+  fun saveThemeMode(value: ThemeMode)
+
   fun loadFollowedStreamers(): List<Streamer>
   fun saveFollowedStreamers(items: List<Streamer>)
 
@@ -40,6 +43,7 @@ interface SubscriptionStore {
 }
 
 object InMemorySubscriptionStore : SubscriptionStore {
+  private var themeMode: ThemeMode = ThemeMode.System
   private var followed: List<Streamer> = emptyList()
   private var pinnedKeys: List<String> = emptyList()
   private var landscapeDanmakuFontScale: Float = 1.2f
@@ -49,6 +53,12 @@ object InMemorySubscriptionStore : SubscriptionStore {
   private var partitions: List<SubscribedPartition> = emptyList()
   private var danmuBlockKeywords: List<String> = emptyList()
   private var simpleModes: List<SimpleModeEntry> = emptyList()
+
+  override fun loadThemeMode(): ThemeMode = themeMode
+
+  override fun saveThemeMode(value: ThemeMode) {
+    themeMode = value
+  }
 
   override fun loadFollowedStreamers(): List<Streamer> = followed
 

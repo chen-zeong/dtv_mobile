@@ -12,6 +12,15 @@ class SubscriptionStoreAndroid(
   private val prefs = appContext.getSharedPreferences("dtv_subscriptions", Context.MODE_PRIVATE)
   private val json = Json { ignoreUnknownKeys = true }
 
+  override fun loadThemeMode(): ThemeMode {
+    val raw = prefs.getString("theme_mode", null)?.trim().orEmpty()
+    return runCatching { ThemeMode.valueOf(raw) }.getOrElse { ThemeMode.System }
+  }
+
+  override fun saveThemeMode(value: ThemeMode) {
+    prefs.edit().putString("theme_mode", value.name).apply()
+  }
+
   override fun loadFollowedStreamers(): List<Streamer> {
     val raw = prefs.getString("followed_streamers", null)?.takeIf { it.isNotBlank() } ?: return emptyList()
     return runCatching { json.decodeFromString(ListSerializer(Streamer.serializer()), raw) }.getOrElse { emptyList() }

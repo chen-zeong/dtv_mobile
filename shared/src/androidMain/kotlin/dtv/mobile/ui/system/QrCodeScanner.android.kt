@@ -29,15 +29,21 @@ actual fun rememberQrCodeScanLauncher(
     onResultUpdated(text)
   }
 
+  fun newScanOptions(): ScanOptions {
+    return ScanOptions()
+      .setDesiredBarcodeFormats(ScanOptions.QR_CODE)
+      .setBeepEnabled(false)
+      // JourneyApps' default CaptureActivity is typically forced to landscape via its manifest.
+      // Use a portrait CaptureActivity so the scan UI matches the app's portrait layout.
+      .setCaptureActivity(PortraitCaptureActivity::class.java)
+      .setOrientationLocked(true)
+  }
+
   val permissionLauncher =
     rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
       if (pendingLaunch && granted) {
         pendingLaunch = false
-        val options = ScanOptions()
-          .setDesiredBarcodeFormats(ScanOptions.QR_CODE)
-          .setBeepEnabled(false)
-          .setOrientationLocked(false)
-        scanLauncher.launch(options)
+        scanLauncher.launch(newScanOptions())
       } else {
         pendingLaunch = false
         onResultUpdated(null)
@@ -51,11 +57,7 @@ actual fun rememberQrCodeScanLauncher(
   return remember(context) {
     {
       if (canUseCamera()) {
-        val options = ScanOptions()
-          .setDesiredBarcodeFormats(ScanOptions.QR_CODE)
-          .setBeepEnabled(false)
-          .setOrientationLocked(false)
-        scanLauncher.launch(options)
+        scanLauncher.launch(newScanOptions())
       } else {
         pendingLaunch = true
         permissionLauncher.launch(Manifest.permission.CAMERA)

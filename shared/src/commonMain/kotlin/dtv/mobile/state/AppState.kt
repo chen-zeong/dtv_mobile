@@ -45,6 +45,7 @@ class AppState(
   private val simpleModeByPlatform = mutableStateMapOf<Platform, Boolean>()
 
   init {
+    themeMode = subscriptionStore.loadThemeMode()
     followedStreamers.addAll(subscriptionStore.loadFollowedStreamers())
     pinnedFollowedStreamerKeys.addAll(subscriptionStore.loadPinnedFollowedStreamerKeys())
     subscribedPartitions.addAll(subscriptionStore.loadSubscribedPartitions())
@@ -122,6 +123,7 @@ class AppState(
       ThemeMode.Dark -> ThemeMode.Light
       ThemeMode.Light -> ThemeMode.System
     }
+    subscriptionStore.saveThemeMode(themeMode)
   }
 
   fun toggleDayNight() {
@@ -129,6 +131,7 @@ class AppState(
       ThemeMode.Dark -> ThemeMode.Light
       ThemeMode.Light, ThemeMode.System -> ThemeMode.Dark
     }
+    subscriptionStore.saveThemeMode(themeMode)
   }
 
   fun isSimpleMode(platform: Platform): Boolean = simpleModeByPlatform[platform] ?: false

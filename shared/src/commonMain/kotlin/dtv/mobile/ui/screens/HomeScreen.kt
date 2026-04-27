@@ -82,11 +82,16 @@ fun HomeScreen(
     live + offline
   }
   val pinnedKeys = appState.pinnedFollowedStreamerKeys.toList()
+  val pinnedKeySet = pinnedKeys.toHashSet()
   val pinnedStreamers = run {
     val snapshot = pinnedKeys.mapNotNull { key -> displayItems.firstOrNull { "${it.platform.name}:${it.roomId}" == key } }
     val live = snapshot.filter { it.isLive }
     val offline = snapshot.filterNot { it.isLive }
     live + offline
+  }
+  val gridItems = run {
+    if (pinnedKeySet.isEmpty()) return@run displayItems
+    displayItems.filterNot { pinnedKeySet.contains("${it.platform.name}:${it.roomId}") }
   }
   var showPinnedPicker by remember { mutableStateOf(false) }
   var refreshing by remember { mutableStateOf(false) }
@@ -144,7 +149,7 @@ fun HomeScreen(
         }
       }
 
-      items(displayItems, key = { "${it.platform}-${it.roomId}" }) { streamer ->
+      items(gridItems, key = { "${it.platform}-${it.roomId}" }) { streamer ->
         val itemKey = "${streamer.platform}-${streamer.roomId}"
         val isDragging = draggingKey == itemKey
         HomeStreamerCard(
@@ -182,12 +187,12 @@ fun HomeScreen(
 
                   dragOffset += dragAmount
 
-                  val fromIndex = displayItems.indexOfFirst { "${it.platform}-${it.roomId}" == itemKey }
+                  val fromIndex = gridItems.indexOfFirst { "${it.platform}-${it.roomId}" == itemKey }
                   if (fromIndex < 0) return@detectDragGesturesAfterLongPress
 
                   val draggingInfo = gridState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == fromIndex + 1 }
                     ?: return@detectDragGesturesAfterLongPress
-                  val draggingStreamer = displayItems.getOrNull(fromIndex) ?: return@detectDragGesturesAfterLongPress
+                  val draggingStreamer = gridItems.getOrNull(fromIndex) ?: return@detectDragGesturesAfterLongPress
                   val draggingIsLive = draggingStreamer.isLive
 
                   val draggingCenter = Offset(
@@ -197,11 +202,11 @@ fun HomeScreen(
 
                   val targetInfo = gridState.layoutInfo.visibleItemsInfo
                     .asSequence()
-                    .filter { it.index in 1..displayItems.lastIndex + 1 }
+                    .filter { it.index in 1..gridItems.lastIndex + 1 }
                     .firstOrNull { info ->
                       if (info.index == draggingInfo.index) return@firstOrNull false
                       val idx = info.index - 1
-                      val s = displayItems.getOrNull(idx) ?: return@firstOrNull false
+                      val s = gridItems.getOrNull(idx) ?: return@firstOrNull false
                       if (s.isLive != draggingIsLive) return@firstOrNull false
                       val left = info.offset.x.toFloat()
                       val top = info.offset.y.toFloat()
@@ -212,7 +217,7 @@ fun HomeScreen(
 
                   val toIndex = targetInfo?.index?.minus(1) ?: return@detectDragGesturesAfterLongPress
                   if (toIndex == fromIndex) return@detectDragGesturesAfterLongPress
-                  val targetStreamer = displayItems.getOrNull(toIndex) ?: return@detectDragGesturesAfterLongPress
+                  val targetStreamer = gridItems.getOrNull(toIndex) ?: return@detectDragGesturesAfterLongPress
 
                   val diff = Offset(
                     x = (draggingInfo.offset.x - targetInfo.offset.x).toFloat(),
