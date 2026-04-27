@@ -58,15 +58,15 @@
 
 ## 截图
 
-> 将占位图替换为真实截图即可（建议保持同名文件，直接覆盖）。
+截图位于 `screenshots/`：
 
-| 首页 | 播放 | 搜索 |
-| --- | --- | --- |
-| <img src="docs/screenshots/home.svg" width="240" alt="Home" /> | <img src="docs/screenshots/player.svg" width="240" alt="Player" /> | <img src="docs/screenshots/search.svg" width="240" alt="Search" /> |
+| 首页                                                        | 播放                                                          | 分区（斗鱼）                                                   |
+| --------------------------------------------------------- | ----------------------------------------------------------- | ---------------------------------------------------------- |
+| <img src="screenshots/home.jpeg" width="240" alt="首页" /> | <img src="screenshots/player.jpeg" width="240" alt="播放" /> | <img src="screenshots/douyu.jpeg" width="240" alt="斗鱼" /> |
 
-| 同步 | 扫码 |
-| --- | --- |
-| <img src="docs/screenshots/sync.svg" width="240" alt="Sync" /> | <img src="docs/screenshots/scan.svg" width="240" alt="Scan" /> |
+| 共享/导入                                                     | B站                                                     |
+| ---------------------------------------------------------- | ------------------------------------------------------ |
+| <img src="screenshots/share.jpeg" width="240" alt="共享" /> | <img src="screenshots/b.jpeg" width="240" alt="B站" /> |
 
 ## Roadmap（想法）
 
