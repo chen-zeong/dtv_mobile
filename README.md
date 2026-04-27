@@ -1,9 +1,12 @@
-# <p align="center"><img src="androidApp/src/main/res/mipmap-xxxhdpi/ic_launcher.png" width="96" height="96" alt="DTV Mobile" /></p>
+# <p align="center"><img src="screenshots/icon.png" width="96" height="96" alt="DTV Mobile" /></p>
 ## <p align="center">DTV Mobile</p>
 
 <p align="center">
   Kotlin Multiplatform + Compose Multiplatform 项目（Android 优先），用于聚合内容浏览与播放体验。
 </p>
+
+> 这是 DTV 项目的 Android 版本；桌面端请看：https://github.com/chen-zeong/dtv  
+> 快速跳转：[打赏](#打赏)
 
 ---
 
@@ -81,3 +84,11 @@
 ```bash
 ./gradlew build
 ```
+
+## 打赏
+
+如果这个项目对你有帮助，欢迎打赏支持：
+
+<p>
+  <img src="screenshots/wechat.jpg" width="260" alt="微信打赏码" />
+</p>
