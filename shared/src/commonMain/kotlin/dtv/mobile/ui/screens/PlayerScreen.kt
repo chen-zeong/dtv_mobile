@@ -86,7 +86,6 @@ import dtv.mobile.repo.DanmakuMessage
 import dtv.mobile.repo.DouyuPlayInfo
 import dtv.mobile.state.AppState
 import dtv.mobile.theme.DtvColors
-import dtv.mobile.ui.components.DtvBackground
 import dtv.mobile.ui.components.NetworkImage
 import dtv.mobile.ui.player.StreamPlayer
 import dtv.mobile.ui.system.FullscreenEffect
@@ -100,7 +99,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.infiniteRepeatable
@@ -496,7 +494,7 @@ fun PlayerScreen(
         Surface(
           shape = videoSurfaceShape,
           color = videoSurfaceColor,
-          modifier = videoSurfaceModifier.animateContentSize(animationSpec = tween(durationMillis = 260)),
+          modifier = videoSurfaceModifier,
         ) {
           Box(modifier = Modifier.fillMaxSize()) {
             if (url != null) {
@@ -656,7 +654,7 @@ fun PlayerScreen(
       }
     }
 
-    if (fullscreen) content() else PlayerBackground(content = content)
+    PlayerBackground(fullscreen = fullscreen, content = content)
 
     PlayerSettingsDrawer(
       visible = showSettingsDrawer,
@@ -740,38 +738,41 @@ private fun CenteredLoadingIndicator(
 
 @Composable
 private fun PlayerBackground(
+  fullscreen: Boolean,
   content: @Composable () -> Unit,
 ) {
   val bg = MaterialTheme.colorScheme.background
   val accent = MaterialTheme.colorScheme.primary
   val isDark = bg.luminance() < 0.35f
-  if (isDark) {
-    DtvBackground(content = content)
-    return
-  }
 
-  Box(modifier = Modifier.fillMaxSize()) {
-    Canvas(modifier = Modifier.fillMaxSize()) {
-      drawRect(
-        brush = Brush.linearGradient(
-          colors = listOf(
-            bg,
-            accent.copy(alpha = 0.10f),
-            bg,
+  Box(
+    modifier = Modifier
+      .fillMaxSize()
+      .then(if (fullscreen) Modifier.background(Color.Black) else Modifier),
+  ) {
+    if (!fullscreen) {
+      Canvas(modifier = Modifier.fillMaxSize()) {
+        drawRect(
+          brush = Brush.linearGradient(
+            colors = listOf(
+              bg,
+              accent.copy(alpha = if (isDark) 0.05f else 0.10f),
+              bg,
+            ),
+            start = Offset(0f, 0f),
+            end = Offset(size.width, size.height),
           ),
-          start = Offset(0f, 0f),
-          end = Offset(size.width, size.height),
-        ),
-      )
-      drawCircle(
-        brush = Brush.radialGradient(
-          colors = listOf(accent.copy(alpha = 0.12f), Color.Transparent),
-          center = Offset(size.width * 0.80f, size.height * 0.18f),
+        )
+        drawCircle(
+          brush = Brush.radialGradient(
+            colors = listOf(accent.copy(alpha = if (isDark) 0.08f else 0.12f), Color.Transparent),
+            center = Offset(size.width * 0.80f, size.height * 0.18f),
+            radius = size.width * 0.70f,
+          ),
           radius = size.width * 0.70f,
-        ),
-        radius = size.width * 0.70f,
-        center = Offset(size.width * 0.80f, size.height * 0.18f),
-      )
+          center = Offset(size.width * 0.80f, size.height * 0.18f),
+        )
+      }
     }
     content()
   }

@@ -149,7 +149,13 @@ actual fun StreamPlayer(
       view.useController = false
       view.controllerAutoShow = false
       view.keepScreenOn = true
-      view.player = player
+      if (view.player !== player) {
+        view.player = player
+      }
+      view.post {
+        view.requestLayout()
+        view.invalidate()
+      }
     },
   )
 }
