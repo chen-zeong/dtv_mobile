@@ -127,7 +127,7 @@ fun PlayerScreen(
   var error by remember(streamer?.roomId) { mutableStateOf<String?>(null) }
   var loading by remember(streamer?.roomId) { mutableStateOf(false) }
   var playInfo by remember(streamer?.roomId) { mutableStateOf<DouyuPlayInfo?>(null) }
-  var selectedDouyuQuality by remember(streamer?.roomId) { mutableStateOf<String?>(null) }
+  var selectedDouyuRate by remember(streamer?.roomId) { mutableStateOf<String?>(null) }
   var selectedDouyuCdn by remember(streamer?.roomId) { mutableStateOf<String?>(null) }
   var selectedDouyinQuality by remember(streamer?.roomId) { mutableStateOf<String?>(null) }
   var selectedBilibiliQn by remember(streamer?.roomId) { mutableStateOf<Int?>(null) }
@@ -165,18 +165,20 @@ fun PlayerScreen(
     error = null
     url = null
     playInfo = null
-    selectedDouyuQuality = null
+    selectedDouyuRate = null
     selectedDouyuCdn = null
     selectedDouyinQuality = null
     selectedBilibiliQn = null
     when (s.platform) {
       Platform.Douyu -> {
-        runCatching { appState.repo.fetchDouyuPlayInfo(roomId = s.roomId) }
-          .onSuccess { playInfo = it }
-          .onFailure { error = it.message ?: "获取清晰度信息失败" }
         runCatching { appState.repo.resolveDouyuStreamUrl(roomId = s.roomId) }
           .onSuccess { url = it }
           .onFailure { error = it.message ?: "获取播放地址失败" }
+        runCatching { appState.repo.fetchDouyuPlayInfo(roomId = s.roomId) }
+          .onSuccess { playInfo = it }
+          .onFailure {
+            if (url == null && error == null) error = it.message ?: "获取清晰度信息失败"
+          }
       }
       Platform.Huya -> {
         runCatching { appState.repo.resolveHuyaStreamUrl(roomId = s.roomId) }
@@ -247,7 +249,7 @@ fun PlayerScreen(
         Platform.Douyu -> runCatching {
           appState.repo.resolveDouyuStreamUrl(
             roomId = s.roomId,
-            quality = selectedDouyuQuality,
+            quality = selectedDouyuRate,
             cdn = selectedDouyuCdn,
           )
         }
@@ -299,10 +301,10 @@ fun PlayerScreen(
           when (s.platform) {
             Platform.Douyu -> {
               RowWrap(
-                items = listOf("自动" to null) + (playInfo?.variants.orEmpty().map { it.name to it.name }),
-                selected = selectedDouyuQuality,
+                items = listOf("自动" to null) + (playInfo?.variants.orEmpty().map { it.name to it.rate.toString() }),
+                selected = selectedDouyuRate,
                 onSelect = {
-                  selectedDouyuQuality = it
+                  selectedDouyuRate = it
                   reloadUrl()
                 },
               )

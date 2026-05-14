@@ -7,8 +7,9 @@ import dtv.mobile.util.decodeHtmlEntities
 import dtv.mobile.util.jsonElementToInt
 import dtv.mobile.util.jsonElementToString
 import io.ktor.client.HttpClient
+import io.ktor.client.request.HttpRequestBuilder
 import io.ktor.client.request.get
-import io.ktor.client.request.header
+import io.ktor.client.request.headers
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
@@ -18,6 +19,7 @@ import io.ktor.http.contentType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import kotlin.math.roundToLong
 
 class DouyuStreamUrlResolverAndroid(
   private val appContext: Context,
@@ -40,7 +42,11 @@ class DouyuStreamUrlResolverAndroid(
     val signData = buildSignParams(realRoomId)
     val playInfo = getPlayQualities(realRoomId, signData)
 
-    val selectedRate = resolveRate(quality, playInfo.variants) ?: playInfo.variants.maxOfOrNull { it.rate } ?: 0
+    val selectedRate = resolveRate(quality, playInfo.variants)
+      // Douyu uses rate=0 for "原画" (best). Treat empty quality (auto) as "原画" first.
+      ?: playInfo.variants.firstOrNull { it.rate == 0 }?.rate
+      ?: playInfo.variants.maxOfOrNull { it.rate }
+      ?: 0
     val selectedCdn = selectCdn(cdn, playInfo.cdns)
 
     getPlayUrl(realRoomId, signData, selectedRate, selectedCdn)
@@ -63,7 +69,7 @@ class DouyuStreamUrlResolverAndroid(
 
   private suspend fun fetchRoomDetail(roomId: String): Pair<String, Boolean> {
     val url = "https://www.douyu.com/betard/$roomId"
-    val httpResp = client.get(url) { header(HttpHeaders.Referrer, "https://www.douyu.com/$roomId") }
+    val httpResp = client.get(url) { douyuHeaders(roomId) }
     val text = httpResp.bodyAsText().trim()
     val resp = json.decodeFromString(DouyuBetardResponse.serializer(), text)
     val room = resp.room ?: error("Missing room data")
@@ -75,7 +81,7 @@ class DouyuStreamUrlResolverAndroid(
 
   private suspend fun buildSignParams(roomId: String): String {
     val script = getHomeH5Enc(roomId)
-    val ts = System.currentTimeMillis() / 1000
+    val ts = (System.currentTimeMillis() / 1000.0).roundToLong()
     return signer.signParams(
       homeH5EncScript = script,
       roomId = roomId,
@@ -86,7 +92,7 @@ class DouyuStreamUrlResolverAndroid(
 
   private suspend fun getHomeH5Enc(roomId: String): String {
     val url = "https://www.douyu.com/swf_api/homeH5Enc?rids=$roomId"
-    val httpResp = client.get(url) { header(HttpHeaders.Referrer, "https://www.douyu.com/$roomId") }
+    val httpResp = client.get(url) { douyuHeaders(roomId) }
     val text = httpResp.bodyAsText().trim()
     val resp = json.decodeFromString(DouyuHomeH5EncResponse.serializer(), text)
     if (resp.error != 0) error("homeH5Enc error: ${resp.error}")
@@ -95,10 +101,11 @@ class DouyuStreamUrlResolverAndroid(
   }
 
   private suspend fun getPlayQualities(roomId: String, signData: String): InternalPlayInfo {
-    val payload = "$signData&cdn=&rate=-1&ver=Douyu_223061205&iar=1&ive=1&hevc=0&fa=0"
+    val payload = buildQualityPayload(signData)
     val url = "https://www.douyu.com/lapi/live/getH5Play/$roomId"
     val httpResp = client.post(url) {
       contentType(ContentType.Application.FormUrlEncoded)
+      douyuHeaders(roomId)
       setBody(payload)
     }
     val text = httpResp.bodyAsText().trim()
@@ -122,10 +129,11 @@ class DouyuStreamUrlResolverAndroid(
   }
 
   private suspend fun getPlayUrl(roomId: String, signData: String, rate: Int, cdn: String): String {
-    val payload = "$signData&cdn=$cdn&rate=$rate&ver=Douyu_223061205&iar=1&ive=1&hevc=0&fa=0"
+    val payload = "$signData&cdn=$cdn&rate=$rate"
     val url = "https://www.douyu.com/lapi/live/getH5Play/$roomId"
     val httpResp = client.post(url) {
       contentType(ContentType.Application.FormUrlEncoded)
+      douyuHeaders(roomId)
       setBody(payload)
     }
     val text = httpResp.bodyAsText().trim()
@@ -135,14 +143,17 @@ class DouyuStreamUrlResolverAndroid(
     val data = resp.data ?: error("No data field in response")
     val rtmpUrl = data.rtmpUrl ?: error("No rtmp_url field")
     val rtmpLive = data.rtmpLive?.let(::decodeHtmlEntities) ?: error("No rtmp_live field")
-    // Some Douyu CDN redirects use underscores in HTTPS hostnames which breaks Android's SNI/IDN handling.
-    // For mobile playback, prefer cleartext HTTP to avoid TLS SNI host validation failures.
-    val normalizedBase = if (rtmpUrl.startsWith("https://")) {
-      "http://" + rtmpUrl.removePrefix("https://")
-    } else {
-      rtmpUrl
+    return "$rtmpUrl/$rtmpLive"
+  }
+
+  private fun buildQualityPayload(signData: String): String =
+    "$signData&cdn=&rate=-1&ver=$DOUYU_WEB_VER&iar=1&ive=1&hevc=0&fa=0"
+
+  private fun HttpRequestBuilder.douyuHeaders(roomId: String) {
+    headers {
+      set(HttpHeaders.Referrer, "https://www.douyu.com/$roomId")
+      set(HttpHeaders.UserAgent, DOUYU_USER_AGENT)
     }
-    return "$normalizedBase/$rtmpLive"
   }
 
   private fun selectCdn(requested: String?, available: List<String>): String {
@@ -159,12 +170,19 @@ class DouyuStreamUrlResolverAndroid(
     if (q.isEmpty()) return null
     val lower = q.lowercase()
 
+    q.toIntOrNull()?.let { requested ->
+      return variants.firstOrNull { it.rate == requested }?.rate ?: requested
+    }
+
+    variants.firstOrNull { it.name.equals(q, ignoreCase = true) }?.let { return it.rate }
+
     val canonical = when {
       q.contains('原') || lower == "origin" -> "原画"
       q.contains('高') || lower == "high" -> "高清"
       q.contains('标') || lower == "standard" -> "标清"
       else -> q
     }
+    variants.firstOrNull { it.name.equals(canonical, ignoreCase = true) }?.let { return it.rate }
 
     fun findByKeyword(vararg keywords: String): Int? {
       for (k in keywords) {
@@ -180,19 +198,19 @@ class DouyuStreamUrlResolverAndroid(
           ?: variants.minOfOrNull { it.rate }
       }
       "高清" -> {
-        variants.firstOrNull { it.rate == 4 }?.rate
-          ?: findByKeyword("蓝光", "蓝光4M")
+        findByKeyword("高清")
+          ?: variants.firstOrNull { it.rate == 2 }?.rate
+          ?: variants.firstOrNull { it.rate == 4 }?.rate
+          ?: findByKeyword("蓝光4M", "蓝光")
           ?: findByKeyword("超清")
-          ?: findByKeyword("高清")
           ?: variants.filter { it.rate != 0 }.maxByOrNull { it.bit ?: 0 }?.rate
           ?: variants.filter { it.rate != 0 }.maxOfOrNull { it.rate }
       }
       "标清" -> {
-        variants.firstOrNull { it.rate == 3 }?.rate
-          ?: findByKeyword("超清")
+        findByKeyword("标清")
           ?: findByKeyword("流畅")
-          ?: findByKeyword("标清")
           ?: findByKeyword("普清")
+          ?: variants.firstOrNull { it.rate == 1 }?.rate
           ?: variants.filter { it.rate != 0 }.minByOrNull { it.bit ?: Int.MAX_VALUE }?.rate
           ?: variants.filter { it.rate != 0 }.minOfOrNull { it.rate }
       }
@@ -214,5 +232,8 @@ class DouyuStreamUrlResolverAndroid(
   private companion object {
     const val DEFAULT_DOUYU_CDN = "ws-h5"
     const val DEFAULT_DOUYU_DID = "10000000000000000000000000001501"
+    const val DOUYU_WEB_VER = "Douyu_223061205"
+    const val DOUYU_USER_AGENT =
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36 Edg/114.0.1823.43"
   }
 }

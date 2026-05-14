@@ -139,6 +139,8 @@ actual fun StreamPlayer(
         controllerAutoShow = false
         setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
         resizeMode = if (zoomToFill) AspectRatioFrameLayout.RESIZE_MODE_ZOOM else AspectRatioFrameLayout.RESIZE_MODE_FIT
+        // Keep screen on during playback (some Android 16 devices will otherwise follow a short system timeout).
+        keepScreenOn = true
         this.player = player
       }
     },
@@ -146,6 +148,7 @@ actual fun StreamPlayer(
       view.resizeMode = if (zoomToFill) AspectRatioFrameLayout.RESIZE_MODE_ZOOM else AspectRatioFrameLayout.RESIZE_MODE_FIT
       view.useController = false
       view.controllerAutoShow = false
+      view.keepScreenOn = true
       view.player = player
     },
   )
