@@ -84,13 +84,13 @@ fun DouyinHomeScreen(
 
   suspend fun loadPage(reset: Boolean) {
     if (reset) {
-      if (loading) return
       loading = true
     } else {
       if (loadingMore || loading) return
       loadingMore = true
     }
-    val cate2 = selectedCate2 ?: return
+    try {
+      val cate2 = selectedCate2 ?: return
     if (reset) {
       rooms = emptyList()
       hasMore = true
@@ -118,8 +118,14 @@ fun DouyinHomeScreen(
     rooms = merged
     hasMore = incoming.isNotEmpty() && addedCount > 0
     offset += incoming.size
-    if (reset) loading = false else loadingMore = false
-    if (reset) appState.platformSwitchLoading = false
+    } finally {
+      if (reset) {
+        loading = false
+        appState.platformSwitchLoading = false
+      } else {
+        loadingMore = false
+      }
+    }
   }
 
   LaunchedEffect(Unit) {

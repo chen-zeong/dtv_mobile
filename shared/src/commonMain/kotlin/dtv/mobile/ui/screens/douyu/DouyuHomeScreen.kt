@@ -112,49 +112,55 @@ fun DouyuHomeScreen(
 
   suspend fun loadPage(reset: Boolean) {
     if (reset) {
-      if (loading) return
       loading = true
     } else {
       if (loadingMore || loading) return
       loadingMore = true
     }
-    val cate2 = selectedCate2 ?: return
-    val cate3 = selectedCate3 // 一次性快照，避免 suspend 点之间状态变化
-    if (reset) {
-      rooms = emptyList()
-      hasMore = true
-      page = 0
-    }
-    if (!hasMore) return
-    val result: PagedResult<Streamer> = if (cate3 != null) {
-      appState.repo.fetchDouyuLiveListByCate3(
-        cate3Id = cate3.id,
-        page = (page + 1).coerceAtLeast(1),
-        limit = PAGE_SIZE,
-      )
-    } else {
-      appState.repo.fetchDouyuLiveListByCate2(
-        cate2Id = cate2.id,
-        offset = page * PAGE_SIZE,
-        limit = PAGE_SIZE,
-      )
-    }
+    try {
+      val cate2 = selectedCate2 ?: return
+      val cate3 = selectedCate3 // 一次性快照，避免 suspend 点之间状态变化
+      if (reset) {
+        rooms = emptyList()
+        hasMore = true
+        page = 0
+      }
+      if (!hasMore) return
+      val result: PagedResult<Streamer> = if (cate3 != null) {
+        appState.repo.fetchDouyuLiveListByCate3(
+          cate3Id = cate3.id,
+          page = (page + 1).coerceAtLeast(1),
+          limit = PAGE_SIZE,
+        )
+      } else {
+        appState.repo.fetchDouyuLiveListByCate2(
+          cate2Id = cate2.id,
+          offset = page * PAGE_SIZE,
+          limit = PAGE_SIZE,
+        )
+      }
 
-    val incoming = result.items
-    val old = rooms
-    val (merged, addedCount) = if (reset) {
-      incoming to incoming.size
-    } else {
-      val existing = old.asSequence().map { it.roomId }.toHashSet()
-      val added = incoming.filter { existing.add(it.roomId) }
-      (old + added) to added.size
-    }
-    rooms = merged
+      val incoming = result.items
+      val old = rooms
+      val (merged, addedCount) = if (reset) {
+        incoming to incoming.size
+      } else {
+        val existing = old.asSequence().map { it.roomId }.toHashSet()
+        val added = incoming.filter { existing.add(it.roomId) }
+        (old + added) to added.size
+      }
+      rooms = merged
 
-    hasMore = incoming.isNotEmpty() && addedCount > 0
-    page += 1
-    if (reset) loading = false else loadingMore = false
-    if (reset) appState.platformSwitchLoading = false
+      hasMore = incoming.isNotEmpty() && addedCount > 0
+      page += 1
+    } finally {
+      if (reset) {
+        loading = false
+        appState.platformSwitchLoading = false
+      } else {
+        loadingMore = false
+      }
+    }
   }
 
   LaunchedEffect(selectedCate2?.id, selectedCate3?.id) {

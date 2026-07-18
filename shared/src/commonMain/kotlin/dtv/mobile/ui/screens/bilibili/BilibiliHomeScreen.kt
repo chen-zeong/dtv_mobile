@@ -76,13 +76,13 @@ fun BilibiliHomeScreen(
 
   suspend fun loadPage(reset: Boolean) {
     if (reset) {
-      if (loading) return
       loading = true
     } else {
       if (loadingMore || loading) return
       loadingMore = true
     }
-    val cate2 = selectedCate2 ?: return
+    try {
+      val cate2 = selectedCate2 ?: return
     val hadItems = rooms.isNotEmpty()
     if (reset) {
       rooms = emptyList()
@@ -115,8 +115,14 @@ fun BilibiliHomeScreen(
       val remaining = 180L - elapsed
       if (remaining > 0) delay(remaining)
     }
-    if (reset) loading = false else loadingMore = false
-    if (reset) appState.platformSwitchLoading = false
+    } finally {
+      if (reset) {
+        loading = false
+        appState.platformSwitchLoading = false
+      } else {
+        loadingMore = false
+      }
+    }
   }
 
   LaunchedEffect(Unit) {

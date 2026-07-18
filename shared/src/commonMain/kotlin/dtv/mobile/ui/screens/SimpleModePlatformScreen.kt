@@ -75,13 +75,13 @@ fun SimpleModePlatformScreen(
 
   suspend fun loadPage(reset: Boolean) {
     if (reset) {
-      if (loading) return
       loading = true
     } else {
       if (loadingMore || loading) return
       loadingMore = true
     }
-    val key = selectedPartition.id
+    try {
+      val key = selectedPartition.id
     if (reset) {
       rooms = emptyList()
       hasMore = true
@@ -162,8 +162,14 @@ fun SimpleModePlatformScreen(
     }
     page += 1
 
-    if (reset) loading = false else loadingMore = false
-    if (reset) appState.platformSwitchLoading = false
+    } finally {
+      if (reset) {
+        loading = false
+        appState.platformSwitchLoading = false
+      } else {
+        loadingMore = false
+      }
+    }
   }
 
   LaunchedEffect(selectedPartition.id) {
