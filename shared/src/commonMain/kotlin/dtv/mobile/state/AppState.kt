@@ -265,13 +265,13 @@ class AppState(
   }
 
   fun selectPlatform(platform: Platform) {
-    platformSwitchLoading = true
     selectedPlatform = platform
     currentPartition = null
     if (currentScreen == Screen.Search) {
       // keep current screen for better UX when switching tabs during search
       return
     }
+    platformSwitchLoading = true
     currentScreen = Screen.Platform
   }
 
