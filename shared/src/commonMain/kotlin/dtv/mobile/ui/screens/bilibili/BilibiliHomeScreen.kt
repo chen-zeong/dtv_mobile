@@ -75,6 +75,13 @@ fun BilibiliHomeScreen(
   val scope = rememberCoroutineScope()
 
   suspend fun loadPage(reset: Boolean) {
+    if (reset) {
+      if (loading) return
+      loading = true
+    } else {
+      if (loadingMore || loading) return
+      loadingMore = true
+    }
     val cate2 = selectedCate2 ?: return
     val hadItems = rooms.isNotEmpty()
     if (reset) {
@@ -83,7 +90,6 @@ fun BilibiliHomeScreen(
       page = 1
     }
     if (!hasMore) return
-    if (reset) loading = true else loadingMore = true
     val startMs = if (reset && !hadItems) System.currentTimeMillis() else 0L
 
     val resp: PagedResult<Streamer> = appState.repo.fetchBilibiliLiveList(
@@ -190,8 +196,8 @@ fun BilibiliHomeScreen(
     refreshing = refreshing,
     onRefresh = {
       if (refreshing || loading) return@PullToRefreshBox
+      refreshing = true
       scope.launch {
-        refreshing = true
         runCatching {
           loadPage(reset = true)
           gridState.scrollToItem(0)

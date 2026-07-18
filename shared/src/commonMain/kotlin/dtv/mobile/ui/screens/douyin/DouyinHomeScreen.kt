@@ -83,6 +83,13 @@ fun DouyinHomeScreen(
   val scope = rememberCoroutineScope()
 
   suspend fun loadPage(reset: Boolean) {
+    if (reset) {
+      if (loading) return
+      loading = true
+    } else {
+      if (loadingMore || loading) return
+      loadingMore = true
+    }
     val cate2 = selectedCate2 ?: return
     if (reset) {
       rooms = emptyList()
@@ -92,7 +99,6 @@ fun DouyinHomeScreen(
     }
     if (!hasMore) return
 
-    if (reset) loading = true else loadingMore = true
     val resp: PagedResult<Streamer> = appState.repo.fetchDouyinPartitionLiveList(
       partition = cate2.partition,
       partitionType = cate2.partitionType,
@@ -194,8 +200,8 @@ fun DouyinHomeScreen(
     refreshing = refreshing,
     onRefresh = {
       if (refreshing || loading) return@PullToRefreshBox
+      refreshing = true
       scope.launch {
-        refreshing = true
         runCatching {
           loadPage(reset = true)
           gridState.scrollToItem(0)

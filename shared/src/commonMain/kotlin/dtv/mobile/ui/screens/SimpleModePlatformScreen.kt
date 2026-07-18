@@ -74,6 +74,13 @@ fun SimpleModePlatformScreen(
   val scope = rememberCoroutineScope()
 
   suspend fun loadPage(reset: Boolean) {
+    if (reset) {
+      if (loading) return
+      loading = true
+    } else {
+      if (loadingMore || loading) return
+      loadingMore = true
+    }
     val key = selectedPartition.id
     if (reset) {
       rooms = emptyList()
@@ -83,8 +90,6 @@ fun SimpleModePlatformScreen(
       msToken = generateMsToken()
     }
     if (!hasMore) return
-
-    if (reset) loading = true else loadingMore = true
 
     val resp: PagedResult<Streamer> = when (platform) {
       Platform.Douyu -> {
@@ -179,8 +184,8 @@ fun SimpleModePlatformScreen(
     refreshing = refreshing,
     onRefresh = {
       if (refreshing || loading) return@PullToRefreshBox
+      refreshing = true
       scope.launch {
-        refreshing = true
         runCatching {
           loadPage(reset = true)
           gridState.scrollToItem(0)

@@ -26,6 +26,16 @@ android {
     targetSdk = 36
     versionCode = 1
     versionName = "0.1.1"
+    ndk {
+      abiFilters += listOf("arm64-v8a")
+    }
+  }
+
+  applicationVariants.all {
+    outputs.all {
+      (this as com.android.build.gradle.internal.api.BaseVariantOutputImpl).outputFileName =
+        "dtv-mobile-v${versionName}-arm64.apk"
+    }
   }
 
   buildFeatures { compose = true }
@@ -35,12 +45,12 @@ android {
   }
 
   compileOptions {
-    sourceCompatibility = JavaVersion.VERSION_17
-    targetCompatibility = JavaVersion.VERSION_17
+    sourceCompatibility = JavaVersion.VERSION_21
+    targetCompatibility = JavaVersion.VERSION_21
   }
 
   kotlinOptions {
-    jvmTarget = "17"
+    jvmTarget = "21"
   }
 
   signingConfigs {

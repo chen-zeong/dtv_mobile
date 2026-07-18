@@ -74,6 +74,13 @@ fun HuyaHomeScreen(
   val scope = rememberCoroutineScope()
 
   suspend fun loadPage(reset: Boolean) {
+    if (reset) {
+      if (loading) return
+      loading = true
+    } else {
+      if (loadingMore || loading) return
+      loadingMore = true
+    }
     val gid = selectedCate2?.gid ?: return
     val hadItems = rooms.isNotEmpty()
     if (reset) {
@@ -83,7 +90,6 @@ fun HuyaHomeScreen(
     }
     if (!hasMore) return
 
-    if (reset) loading = true else loadingMore = true
     val startMs = if (reset && !hadItems) System.currentTimeMillis() else 0L
     val resp: PagedResult<Streamer> = appState.repo.fetchHuyaLiveList(gid = gid, page = page, limit = PAGE_SIZE)
     val incoming = resp.items
@@ -180,8 +186,8 @@ fun HuyaHomeScreen(
     refreshing = refreshing,
     onRefresh = {
       if (refreshing || loading) return@PullToRefreshBox
+      refreshing = true
       scope.launch {
-        refreshing = true
         runCatching {
           loadPage(reset = true)
           gridState.scrollToItem(0)

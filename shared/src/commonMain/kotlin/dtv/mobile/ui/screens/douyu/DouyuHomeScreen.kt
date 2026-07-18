@@ -111,18 +111,24 @@ fun DouyuHomeScreen(
   }
 
   suspend fun loadPage(reset: Boolean) {
+    if (reset) {
+      if (loading) return
+      loading = true
+    } else {
+      if (loadingMore || loading) return
+      loadingMore = true
+    }
     val cate2 = selectedCate2 ?: return
+    val cate3 = selectedCate3 // 一次性快照，避免 suspend 点之间状态变化
     if (reset) {
       rooms = emptyList()
       hasMore = true
       page = 0
     }
     if (!hasMore) return
-
-    if (reset) loading = true else loadingMore = true
-    val result: PagedResult<Streamer> = if (selectedCate3 != null) {
+    val result: PagedResult<Streamer> = if (cate3 != null) {
       appState.repo.fetchDouyuLiveListByCate3(
-        cate3Id = selectedCate3!!.id,
+        cate3Id = cate3.id,
         page = (page + 1).coerceAtLeast(1),
         limit = PAGE_SIZE,
       )
@@ -211,8 +217,8 @@ fun DouyuHomeScreen(
     refreshing = refreshing,
     onRefresh = {
       if (refreshing || loading) return@PullToRefreshBox
+      refreshing = true // 同步设置，消除防重入窗口
       scope.launch {
-        refreshing = true
         runCatching {
           loadPage(reset = true)
           gridState.scrollToItem(0)
