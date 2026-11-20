@@ -106,4 +106,15 @@ class SubscriptionStoreAndroid(
     val raw = json.encodeToString(ListSerializer(SimpleModeEntry.serializer()), items)
     prefs.edit().putString("simple_mode_by_platform", raw).apply()
   }
+
+  override fun loadPlaybackPreferences(): List<PlaybackPreference> {
+    val raw = prefs.getString("playback_preferences", null)?.takeIf { it.isNotBlank() } ?: return emptyList()
+    return runCatching { json.decodeFromString(ListSerializer(PlaybackPreference.serializer()), raw) }
+      .getOrElse { emptyList() }
+  }
+
+  override fun savePlaybackPreferences(items: List<PlaybackPreference>) {
+    val raw = json.encodeToString(ListSerializer(PlaybackPreference.serializer()), items)
+    prefs.edit().putString("playback_preferences", raw).apply()
+  }
 }

@@ -47,6 +47,7 @@ import dtv.mobile.ui.components.LazyGridLoadMoreEffect
 import dtv.mobile.ui.components.PullToRefreshBox
 import dtv.mobile.ui.components.StreamerCard
 import dtv.mobile.ui.components.StreamerCardSkeleton
+import dtv.mobile.util.runSuspendCatching
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -182,7 +183,7 @@ fun HuyaHomeScreen(
       if (refreshing || loading) return@PullToRefreshBox
       scope.launch {
         refreshing = true
-        runCatching {
+        runSuspendCatching {
           loadPage(reset = true)
           gridState.scrollToItem(0)
         }

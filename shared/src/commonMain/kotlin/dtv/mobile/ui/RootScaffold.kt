@@ -61,6 +61,7 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.tween
 import dtv.mobile.model.Platform
 import dtv.mobile.ui.components.BilibiliWebLoginSheet
+import dtv.mobile.util.runSuspendCatching
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -75,15 +76,14 @@ fun RootScaffold(appState: AppState) {
 
   LaunchedEffect(Unit) {
     if (appState.followedStreamers.isNotEmpty()) {
-      runCatching { appState.refreshFollowedStreamerCards() }
-      runCatching { appState.refreshFollowedLiveStatus() }
+      runSuspendCatching { appState.refreshFollowedStreamerCards() }
     }
   }
 
   LaunchedEffect(appState.currentScreen, appState.selectedPlatform) {
     if (appState.currentScreen != Screen.Platform) return@LaunchedEffect
     if (appState.selectedPlatform != Platform.Bilibili) return@LaunchedEffect
-    bilibiliLoggedIn = !runCatching { appState.repo.getBilibiliCookie() }.getOrNull().isNullOrBlank()
+    bilibiliLoggedIn = !runSuspendCatching { appState.repo.getBilibiliCookie() }.getOrNull().isNullOrBlank()
   }
 
   if (showBilibiliLoginSheet) {

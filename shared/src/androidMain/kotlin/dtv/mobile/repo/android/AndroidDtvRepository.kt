@@ -1,7 +1,6 @@
 package dtv.mobile.repo.android
 
 import android.content.Context
-import dtv.mobile.util.AppLog
 import dtv.mobile.model.Platform
 import dtv.mobile.model.Streamer
 import dtv.mobile.net.createHttpClient
@@ -16,11 +15,11 @@ import dtv.mobile.platform.douyin.DouyinDanmakuClientAndroid
 import dtv.mobile.platform.douyu.DouyuCate2DirectoryApi
 import dtv.mobile.platform.douyu.DouyuCate3DirectoryApi
 import dtv.mobile.platform.douyu.DouyuCategoriesApi
-import dtv.mobile.platform.douyu.DouyuMobileApi
 import dtv.mobile.platform.douyu.DouyuDanmakuClientAndroid
 import dtv.mobile.platform.douyu.DouyuSearchApiAndroid
 import dtv.mobile.platform.douyu.DouyuThreeCateApi
 import dtv.mobile.platform.douyu.DouyuStreamUrlResolverAndroid
+import dtv.mobile.platform.douyu.resolveDouyuLiveStatus
 import dtv.mobile.platform.huya.HuyaDanmakuClientAndroid
 import dtv.mobile.platform.huya.HuyaLiveListApiAndroid
 import dtv.mobile.platform.huya.HuyaSearchApiAndroid
@@ -37,17 +36,24 @@ import dtv.mobile.repo.DouyuCate3
 import dtv.mobile.repo.DouyuCategories
 import dtv.mobile.repo.DouyuPlayInfo
 import dtv.mobile.repo.DtvRepository
-import dtv.mobile.repo.DanmakuMessage
+import dtv.mobile.repo.DanmakuConnectionSupervisor
+import dtv.mobile.repo.DanmakuEvent
 import dtv.mobile.repo.HuyaCate1
 import dtv.mobile.repo.HuyaCate2
 import dtv.mobile.repo.PagedResult
+import dtv.mobile.repo.PlaybackLine
+import dtv.mobile.repo.PlaybackOptions
+import dtv.mobile.repo.PlaybackQuality
+import dtv.mobile.repo.ResolvedPlayback
 import dtv.mobile.repo.fake.FakeDtvRepository
 import dtv.mobile.util.formatViewerCountWanIfNeeded
 import dtv.mobile.util.normalizeHttpUrl
+import dtv.mobile.util.runSuspendCatching
 import io.ktor.client.request.get
 import io.ktor.client.request.headers
 import io.ktor.client.statement.bodyAsText
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -64,7 +70,6 @@ class AndroidDtvRepository(
   private val client = createHttpClient()
   private val json = Json { ignoreUnknownKeys = true; isLenient = true }
 
-  private val douyuMobileApi = DouyuMobileApi(client)
   private val douyuCategoriesApi = DouyuCategoriesApi(client)
   private val douyuThreeCateApi = DouyuThreeCateApi(client)
   private val douyuCate2DirectoryApi = DouyuCate2DirectoryApi(client)
@@ -78,7 +83,7 @@ class AndroidDtvRepository(
   private val huyaDanmakuClient = HuyaDanmakuClientAndroid()
   private val huyaSearchApi = HuyaSearchApiAndroid(client)
 
-  private val douyinWebApi = DouyinWebApiAndroid(client)
+  private val douyinWebApi = DouyinWebApiAndroid(client, appContext)
   private val douyinDanmakuClient = DouyinDanmakuClientAndroid(appContext, douyinWebApi)
 
   private val bilibiliCookieStore = BilibiliCookieStoreAndroid(appContext)
@@ -90,6 +95,7 @@ class AndroidDtvRepository(
     httpClient = client,
     cookieProvider = { bilibiliCookieStore.getCookie() },
   )
+  private val danmakuSupervisor = DanmakuConnectionSupervisor()
 
   private val fallback = FakeDtvRepository()
 
@@ -107,10 +113,10 @@ class AndroidDtvRepository(
     val trimmed = keyword.trim()
     if (trimmed.isEmpty()) return emptyList()
     return when (platform) {
-      Platform.Douyu -> runCatching { douyuSearchApi.searchAnchors(trimmed) }.getOrElse { emptyList() }
-      Platform.Huya -> runCatching { huyaSearchApi.searchAnchors(trimmed) }.getOrElse { emptyList() }
-      Platform.Bilibili -> runCatching { bilibiliSearchApi.searchRooms(trimmed) }.getOrElse { emptyList() }
-      Platform.Douyin -> runCatching {
+      Platform.Douyu -> runSuspendCatching { douyuSearchApi.searchAnchors(trimmed) }.getOrElse { emptyList() }
+      Platform.Huya -> runSuspendCatching { huyaSearchApi.searchAnchors(trimmed) }.getOrElse { emptyList() }
+      Platform.Bilibili -> runSuspendCatching { bilibiliSearchApi.searchRooms(trimmed) }.getOrElse { emptyList() }
+      Platform.Douyin -> runSuspendCatching {
         val info = douyinWebApi.fetchRoomEnter(trimmed)
         val title = info.title?.trim().orEmpty().ifBlank { "直播中" }
         val name = info.anchorName?.trim().orEmpty().ifBlank { "抖音主播" }
@@ -134,13 +140,13 @@ class AndroidDtvRepository(
 
   override suspend fun fetchLiveStatus(streamer: Streamer): Boolean? {
     return when (streamer.platform) {
-      Platform.Douyu -> runCatching { douyuStreamResolver.isLive(streamer.roomId) }.getOrNull()
-      Platform.Huya -> runCatching { huyaStreamResolver.isLive(streamer.roomId) }.getOrNull()
-      Platform.Douyin -> runCatching {
+      Platform.Douyu -> runSuspendCatching { douyuStreamResolver.isLive(streamer.roomId) }.getOrNull()
+      Platform.Huya -> runSuspendCatching { huyaStreamResolver.isLive(streamer.roomId) }.getOrNull()
+      Platform.Douyin -> runSuspendCatching {
         val info = douyinWebApi.fetchRoomEnter(streamer.roomId)
         info.hlsPullUrlMap.isNotEmpty() || info.flvPullUrlMap.isNotEmpty()
       }.getOrNull()
-      Platform.Bilibili -> runCatching { fetchBilibiliLiveStatus(streamer.roomId) }.getOrNull()
+      Platform.Bilibili -> runSuspendCatching { fetchBilibiliLiveStatus(streamer.roomId) }.getOrNull()
       else -> null
     }
   }
@@ -150,7 +156,7 @@ class AndroidDtvRepository(
     if (roomId.isBlank()) return null
 
     return when (streamer.platform) {
-      Platform.Douyu -> runCatching {
+      Platform.Douyu -> runSuspendCatching {
         val info = fetchDouyuFollowInfo(roomId)
         streamer.copy(
           name = info.name ?: streamer.name,
@@ -162,7 +168,7 @@ class AndroidDtvRepository(
         )
       }.getOrNull()
 
-      Platform.Huya -> runCatching {
+      Platform.Huya -> runSuspendCatching {
         val info = fetchHuyaFollowInfo(roomId)
         streamer.copy(
           name = info.name ?: streamer.name,
@@ -174,7 +180,7 @@ class AndroidDtvRepository(
         )
       }.getOrNull()
 
-      Platform.Bilibili -> runCatching {
+      Platform.Bilibili -> runSuspendCatching {
         val info = fetchBilibiliFollowInfo(roomId)
         streamer.copy(
           name = info.name ?: streamer.name,
@@ -186,7 +192,7 @@ class AndroidDtvRepository(
         )
       }.getOrNull()
 
-      Platform.Douyin -> runCatching {
+      Platform.Douyin -> runSuspendCatching {
         val info = douyinWebApi.fetchRoomEnter(roomId)
         val isLive = (info.hlsPullUrlMap.isNotEmpty() || info.flvPullUrlMap.isNotEmpty())
         streamer.copy(
@@ -267,18 +273,14 @@ class AndroidDtvRepository(
 
     val showStatus = roomObj["show_status"]?.jsonPrimitive?.intOrNull
     val videoLoop = roomObj["videoLoop"]?.jsonPrimitive?.intOrNull
-    val liveStatus: Boolean? = if (showStatus == 1) {
-      when (videoLoop) {
-        0 -> true
-        1 -> false
-        else -> null
-      }
-    } else if (showStatus == 2 || showStatus == 0) {
-      false
-    } else {
-      null
-    }
-    val isLive = liveStatus ?: runCatching { douyuStreamResolver.isLive(roomId) }.getOrNull()
+    val isLoop = roomObj["isLoop"]?.jsonPrimitive?.intOrNull
+      ?: roomObj["is_loop"]?.jsonPrimitive?.intOrNull
+    val liveStatus = resolveDouyuLiveStatus(
+      showStatus = showStatus?.toLong(),
+      videoLoop = videoLoop?.toLong(),
+      isLoop = isLoop?.toLong(),
+    )
+    val isLive = liveStatus ?: runSuspendCatching { douyuStreamResolver.isLive(roomId) }.getOrNull()
 
     val online = (
       roomObj["iol"].stringValueOrNull()
@@ -324,7 +326,7 @@ class AndroidDtvRepository(
     val isLive = when (liveStatus) {
       "ON" -> true
       "OFF" -> false
-      else -> runCatching { huyaStreamResolver.isLive(roomId) }.getOrNull()
+      else -> runSuspendCatching { huyaStreamResolver.isLive(roomId) }.getOrNull()
     }
 
     val totalCount = liveData?.get("totalCount")?.jsonPrimitive?.longOrNull?.toString()
@@ -385,7 +387,7 @@ class AndroidDtvRepository(
   }
 
   override suspend fun fetchHuyaCategories(): List<HuyaCate1> {
-    return runCatching {
+    return runSuspendCatching {
       val text = readAssetText("categories/huya_categories.json")
       val root = json.parseToJsonElement(text)
       val arr = root as? JsonArray ?: return emptyList()
@@ -411,7 +413,7 @@ class AndroidDtvRepository(
   }
 
   override suspend fun fetchBilibiliCategories(): List<BilibiliCate1> {
-    return runCatching {
+    return runSuspendCatching {
       val text = readAssetText("categories/bilibili_categories.json")
       val root = json.parseToJsonElement(text)
       val arr = root as? JsonArray ?: return emptyList()
@@ -443,7 +445,7 @@ class AndroidDtvRepository(
   }
 
   override suspend fun fetchDouyinCategories(): List<DouyinCate1> {
-    return runCatching {
+    return runSuspendCatching {
       val text = readAssetText("categories/douyin_categories.json")
       val root = json.parseToJsonElement(text)
       val arr = root as? JsonArray ?: return emptyList()
@@ -482,7 +484,7 @@ class AndroidDtvRepository(
   }
 
   override suspend fun fetchDouyuCategories(): DouyuCategories {
-    return runCatching {
+    return runSuspendCatching {
       val resp = douyuCategoriesApi.fetchCateList()
       if (resp.code != 0) return fallback.fetchDouyuCategories()
       val data = resp.data ?: return fallback.fetchDouyuCategories()
@@ -523,7 +525,7 @@ class AndroidDtvRepository(
   }
 
   override suspend fun fetchDouyuThreeCate(cate2Id: String): List<DouyuCate3> {
-    return runCatching {
+    return runSuspendCatching {
       val resp = douyuThreeCateApi.fetchThreeCate(cate2Id)
       if (resp.error != 0) return emptyList()
       resp.data.orEmpty()
@@ -537,7 +539,7 @@ class AndroidDtvRepository(
   }
 
   override suspend fun fetchDouyuLiveListByCate2(cate2Id: String, offset: Int, limit: Int): PagedResult<Streamer> {
-    return runCatching {
+    return runSuspendCatching {
       // Douyu 的 `m.douyu.com/hgapi/.../newRecList` 近期经常返回 “系统异常”，改用网页目录接口 mixListV1 更稳定。
       val page = (offset / limit) + 1
       val resp = douyuCate2DirectoryApi.fetchMixListV1(cate2Id = cate2Id, page = page, limit = limit)
@@ -562,7 +564,7 @@ class AndroidDtvRepository(
   }
 
   override suspend fun fetchDouyuLiveListByCate3(cate3Id: String, page: Int, limit: Int): PagedResult<Streamer> {
-    return runCatching {
+    return runSuspendCatching {
       val resp = douyuCate3DirectoryApi.fetchMixListV1(cate3Id = cate3Id, page = page, limit = limit)
       if (resp.code != 0) return PagedResult(emptyList(), total = null)
       val data = resp.data ?: return PagedResult(emptyList(), total = null)
@@ -585,43 +587,37 @@ class AndroidDtvRepository(
   }
 
   override suspend fun fetchDouyuPlayInfo(roomId: String): DouyuPlayInfo {
-    return runCatching { douyuStreamResolver.fetchPlayInfo(roomId) }
-      .onFailure { AppLog.e("DTV-Douyu", "fetchPlayInfo failed roomId=$roomId", it) }
-      .getOrThrow()
+    return douyuStreamResolver.fetchPlayInfo(roomId)
   }
 
   override suspend fun resolveDouyuStreamUrl(roomId: String, quality: String?, cdn: String?): String {
-    return runCatching {
-      douyuStreamResolver.resolve(roomId = roomId, quality = quality, cdn = cdn)
+    return douyuStreamResolver.resolve(roomId = roomId, quality = quality, cdn = cdn)
+  }
+
+  override fun observeDanmaku(platform: Platform, roomId: String): Flow<DanmakuEvent> {
+    val connector = when (platform) {
+      Platform.Douyu -> douyuDanmakuClient
+      Platform.Huya -> huyaDanmakuClient
+      Platform.Douyin -> douyinDanmakuClient
+      Platform.Bilibili -> bilibiliDanmakuClient
+      Platform.Custom -> return emptyFlow()
     }
-      .onSuccess { AppLog.i("DTV-Douyu", "resolved stream url roomId=$roomId quality=$quality cdn=$cdn url=$it") }
-      .onFailure { AppLog.e("DTV-Douyu", "resolve stream url failed roomId=$roomId quality=$quality cdn=$cdn", it) }
-      .getOrThrow()
-  }
-
-  override fun observeDouyuDanmaku(roomId: String): Flow<DanmakuMessage> {
-    return douyuDanmakuClient.observe(roomId)
-  }
-
-  override fun observeHuyaDanmaku(roomId: String): Flow<DanmakuMessage> {
-    return huyaDanmakuClient.observe(roomId)
-  }
-
-  override fun observeDouyinDanmaku(webRid: String): Flow<DanmakuMessage> {
-    return douyinDanmakuClient.observe(webRid)
+    return danmakuSupervisor.observe(
+      platform = platform,
+      roomId = roomId,
+      connector = connector,
+    )
   }
 
   override suspend fun fetchHuyaLiveList(gid: String, page: Int, limit: Int): PagedResult<Streamer> {
-    return runCatching {
+    return runSuspendCatching {
       val items = huyaLiveListApi.fetchLiveList(gid = gid, page = page, pageSize = limit)
       PagedResult(items = items, total = null)
     }.getOrElse { PagedResult(items = emptyList(), total = null) }
   }
 
   override suspend fun resolveHuyaStreamUrl(roomId: String): String {
-    return runCatching { huyaStreamResolver.resolve(roomId) }
-      .onFailure { AppLog.e("DTV-Huya", "resolve stream url failed roomId=$roomId", it) }
-      .getOrThrow()
+    return huyaStreamResolver.resolve(roomId)
   }
 
   override suspend fun fetchDouyinPartitionLiveList(
@@ -631,8 +627,7 @@ class AndroidDtvRepository(
     limit: Int,
     msToken: String,
   ): PagedResult<Streamer> {
-    return runCatching {
-      AppLog.i("DTV-Douyin", "fetch partition list partition=$partition type=$partitionType offset=$offset limit=$limit")
+    return runSuspendCatching {
       val resp = douyinWebApi.fetchPartitionRooms(
         partition = partition,
         partitionType = partitionType,
@@ -652,16 +647,14 @@ class AndroidDtvRepository(
           isLive = true,
         )
       }
-      AppLog.i("DTV-Douyin", "fetch partition list ok partition=$partition offset=$offset got=${items.size} hasMore=${resp.hasMore}")
       PagedResult(items = items, total = null)
-    }.getOrElse { err ->
-      AppLog.e("DTV-Douyin", "fetch partition live list failed partition=$partition type=$partitionType offset=$offset", err)
+    }.getOrElse {
       PagedResult(items = emptyList(), total = null)
     }
   }
 
   override suspend fun resolveDouyinStreamUrl(webRid: String, desiredQuality: String?): String {
-    return runCatching {
+    return runSuspendCatching {
       val room = douyinWebApi.fetchRoomEnter(webRid)
       room.roomId?.takeIf { it.isNotBlank() }?.let { roomId ->
         douyinDanmakuClient.prime(webRid = webRid, roomId = roomId, msToken = room.msToken)
@@ -685,28 +678,189 @@ class AndroidDtvRepository(
       // Mobile reality: some Douyin FLV streams may be H.265-in-FLV which Media3/ExoPlayer may not render
       // (audio-only on many devices). Prefer HLS first; fallback to FLV.
       (hls ?: hlsFallback ?: flv ?: flvFallback) ?: error("未找到抖音播放地址")
-    }
-      .onFailure { AppLog.e("DTV-Douyin", "resolve stream url failed webRid=$webRid", it) }
-      .getOrThrow()
+    }.getOrThrow()
   }
 
   override suspend fun fetchBilibiliLiveList(parentAreaId: Int, areaId: Int, page: Int, pageSize: Int): PagedResult<Streamer> {
-    return runCatching {
+    return runSuspendCatching {
       val items = bilibiliLiveListApi.fetchLiveList(parentAreaId = parentAreaId, areaId = areaId, page = page, pageSize = pageSize)
       PagedResult(items = items, total = null)
-    }.getOrElse { err ->
-      AppLog.e("DTV-Bilibili", "fetch live list failed parent=$parentAreaId area=$areaId page=$page", err)
+    }.getOrElse {
       PagedResult(items = emptyList(), total = null)
     }
   }
 
   override suspend fun resolveBilibiliStreamUrl(roomId: String, qn: Int?): String {
-    return runCatching { bilibiliStreamResolver.resolve(roomId = roomId, qn = qn) }
-      .onFailure { AppLog.e("DTV-Bilibili", "resolve stream url failed roomId=$roomId", it) }
-      .getOrThrow()
+    return bilibiliStreamResolver.resolve(roomId = roomId, qn = qn)
   }
 
-  override fun observeBilibiliDanmaku(roomId: String): Flow<DanmakuMessage> = bilibiliDanmakuClient.observe(roomId)
+  override suspend fun fetchPlaybackOptions(platform: Platform, roomId: String): PlaybackOptions {
+    return when (platform) {
+      Platform.Douyu -> {
+        val info = douyuStreamResolver.fetchPlayInfo(roomId)
+        val qualities = info.variants.map { PlaybackQuality(id = it.rate.toString(), label = it.name) }
+          .distinctBy { it.id }
+        val lines = info.cdns.map { cdn ->
+          PlaybackLine(id = cdn, label = douyuLineLabel(cdn), qualities = qualities)
+        }.distinctBy { it.id }
+        PlaybackOptions(
+          lines = lines,
+          defaultLineId = lines.firstOrNull()?.id,
+          defaultQualityId = douyuDefaultQualityId(info),
+        )
+      }
+      Platform.Huya -> huyaStreamResolver.fetchOptions(roomId)
+      Platform.Douyin -> {
+        val room = douyinWebApi.fetchRoomEnter(roomId)
+        val lines = buildList {
+          if (room.hlsPullUrlMap.isNotEmpty()) {
+            add(
+              PlaybackLine(
+                id = "hls",
+                label = "HLS",
+                qualities = room.hlsPullUrlMap.keys.map { PlaybackQuality(id = it, label = douyinQualityLabel(it)) }
+                  .sortedWith(compareBy<PlaybackQuality> { douyinQualityRank(it.id) }.thenBy { it.id }),
+              ),
+            )
+          }
+          if (room.flvPullUrlMap.isNotEmpty()) {
+            add(
+              PlaybackLine(
+                id = "flv",
+                label = "FLV",
+                qualities = room.flvPullUrlMap.keys.map { PlaybackQuality(id = it, label = douyinQualityLabel(it)) }
+                  .sortedWith(compareBy<PlaybackQuality> { douyinQualityRank(it.id) }.thenBy { it.id }),
+              ),
+            )
+          }
+        }
+        val defaultLine = lines.firstOrNull()
+        PlaybackOptions(
+          lines = lines,
+          defaultLineId = defaultLine?.id,
+          defaultQualityId = defaultLine?.qualities?.firstOrNull()?.id,
+        )
+      }
+      Platform.Bilibili -> bilibiliStreamResolver.fetchOptions(roomId)
+      else -> PlaybackOptions()
+    }
+  }
+
+  override suspend fun resolvePlayback(
+    platform: Platform,
+    roomId: String,
+    qualityId: String?,
+    lineId: String?,
+  ): ResolvedPlayback {
+    return when (platform) {
+      Platform.Douyu -> {
+        val info = douyuStreamResolver.fetchPlayInfo(roomId)
+        val defaultLineId = info.cdns.firstOrNull() ?: error("斗鱼未找到可用线路")
+        val actualLineId = lineId
+          ?: defaultLineId
+        if (lineId != null && info.cdns.none { it.equals(lineId, ignoreCase = true) }) {
+          error("当前直播不提供所选线路")
+        }
+        val canonicalLineId = info.cdns.first { it.equals(actualLineId, ignoreCase = true) }
+        val actualQualityId = qualityId ?: douyuDefaultQualityId(info)
+        if (actualQualityId == null) error("斗鱼未找到可用画质")
+        val canonicalQuality = info.variants.firstOrNull {
+          it.rate.toString().equals(actualQualityId, ignoreCase = true) ||
+            it.name.equals(actualQualityId, ignoreCase = true)
+        } ?: if (qualityId == null) {
+          null
+        } else {
+          error("当前直播不提供所选画质")
+        }
+        val rate = canonicalQuality?.rate ?: actualQualityId.toIntOrNull()
+          ?: error("当前直播不提供所选画质")
+        if (info.variants.none { it.rate == rate }) error("当前直播不提供所选画质")
+        val url = douyuStreamResolver.resolve(
+          roomId = roomId,
+          quality = rate.toString(),
+          cdn = canonicalLineId,
+        )
+        ResolvedPlayback(
+          url = url,
+          qualityId = rate.toString(),
+          lineId = canonicalLineId,
+        )
+      }
+      Platform.Huya -> huyaStreamResolver.resolveSelected(roomId = roomId, lineId = lineId)
+      Platform.Douyin -> {
+        val room = douyinWebApi.fetchRoomEnter(roomId)
+        room.roomId?.takeIf { it.isNotBlank() }?.let { realRoomId ->
+          douyinDanmakuClient.prime(webRid = roomId, roomId = realRoomId, msToken = room.msToken)
+        }
+        val defaultProtocol = if (room.hlsPullUrlMap.isNotEmpty()) "hls" else "flv"
+        val actualProtocol = lineId ?: defaultProtocol
+        val selectedMap = when (actualProtocol.lowercase()) {
+          "hls" -> room.hlsPullUrlMap
+          "flv" -> room.flvPullUrlMap
+          else -> error("当前直播不提供所选线路")
+        }
+        if (selectedMap.isEmpty()) error("当前直播不提供所选线路")
+        val actualQuality = qualityId
+          ?: findCaseInsensitive(selectedMap, "ORIGIN")
+          ?: selectedMap.keys.sortedWith(compareBy<String> { douyinQualityRank(it) }.thenBy { it }).firstOrNull()
+          ?: error("未找到抖音播放地址")
+        val canonicalQuality = if (qualityId != null) {
+          findCaseInsensitive(selectedMap, qualityId) ?: error("当前线路不提供所选画质")
+        } else {
+          actualQuality
+        }
+        ResolvedPlayback(
+          url = selectedMap.getValue(canonicalQuality),
+          qualityId = canonicalQuality,
+          lineId = actualProtocol.lowercase(),
+        )
+      }
+      Platform.Bilibili -> bilibiliStreamResolver.resolveSelected(
+        roomId = roomId,
+        qualityId = qualityId,
+        lineId = lineId,
+      )
+      else -> error("暂不支持的平台：${platform.title}")
+    }
+  }
+
+  private fun findCaseInsensitive(map: Map<String, String>, key: String): String? =
+    map.keys.firstOrNull { it.equals(key, ignoreCase = true) }
+
+  private fun douyuLineLabel(cdn: String): String {
+    val lower = cdn.lowercase()
+    return when {
+      lower.startsWith("scdn") -> "备用 · ${cdn.uppercase()}"
+      lower.startsWith("ws") -> "网页 · ${cdn.uppercase()}"
+      lower.startsWith("tct") || lower.startsWith("tx") -> "腾讯 · ${cdn.uppercase()}"
+      lower.startsWith("ali") || lower.startsWith("al") -> "阿里 · ${cdn.uppercase()}"
+      else -> "线路 · ${cdn.uppercase()}"
+    }
+  }
+
+  private fun douyuDefaultQualityId(info: DouyuPlayInfo): String? {
+    return (info.variants.firstOrNull { it.rate == 0 } ?: info.variants.maxByOrNull { it.rate })
+      ?.rate
+      ?.toString()
+  }
+
+  private fun douyinQualityRank(id: String): Int = when (id.uppercase()) {
+    "ORIGIN" -> 0
+    "FULL_HD1" -> 1
+    "HD1" -> 2
+    "SD1" -> 3
+    "LD1" -> 4
+    else -> 9
+  }
+
+  private fun douyinQualityLabel(id: String): String = when (id.uppercase()) {
+    "ORIGIN" -> "原画"
+    "FULL_HD1" -> "超清"
+    "HD1" -> "高清"
+    "SD1" -> "标清"
+    "LD1" -> "流畅"
+    else -> "画质 · ${id.uppercase()}"
+  }
 
   override suspend fun generateBilibiliQrCode(): BilibiliQrCode {
     return bilibiliAuthApi.generateQrCode()

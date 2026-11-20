@@ -1,14 +1,12 @@
 package dtv.mobile.android
 
 import android.app.Application
-import dtv.mobile.util.AppLog
-import dtv.mobile.util.CrashFileLogger
+import dtv.mobile.platform.app.installAppForegroundTracker
 
 class DtvApplication : Application() {
   override fun onCreate() {
     super.onCreate()
-    AppLog.init(this)
-    CrashFileLogger.install(this)
+    installAppForegroundTracker(this)
   }
 }
 

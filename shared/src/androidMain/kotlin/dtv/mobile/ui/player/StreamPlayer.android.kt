@@ -17,7 +17,6 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
-import dtv.mobile.util.AppLog
 
 @Composable
 actual fun StreamPlayer(
@@ -60,9 +59,19 @@ actual fun StreamPlayer(
   }
 
   DisposableEffect(player, url) {
+    fun reportVideoSize(videoSize: VideoSize) {
+      val rawW = videoSize.width
+      val rawH = videoSize.height
+      val rotation = videoSize.unappliedRotationDegrees
+      val pixelRatio = videoSize.pixelWidthHeightRatio
+
+      val (w, h) = if (rotation == 90 || rotation == 270) rawH to rawW else rawW to rawH
+      val aspect = if (w > 0 && h > 0) (w.toFloat() * pixelRatio) / h.toFloat() else null
+      onVideoAspectRatioChanged(aspect)
+    }
+
     val listener = object : Player.Listener {
       override fun onPlayerError(error: PlaybackException) {
-        AppLog.e("DTV-Player", "ExoPlayer error url=$url code=${error.errorCodeName}", error)
         if (error.errorCode == PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW) {
           // live HLS sometimes falls behind; reset and retry
           runCatching {
@@ -78,7 +87,6 @@ actual fun StreamPlayer(
 
         if (causeMsg != null && url.startsWith("https://")) {
           // Workaround for some CDN hosts containing '_' which breaks IDN/SNI on Android.
-          AppLog.w("DTV-Player", "retrying with http due to toASCII failure. url=$url")
           onError("__retry_http__:" + url.replaceFirst("https://", "http://"))
           return
         }
@@ -86,44 +94,14 @@ actual fun StreamPlayer(
         onError(error.message ?: "播放器错误: ${error.errorCodeName}")
       }
 
-      override fun onTracksChanged(tracks: Tracks) {
-        val selectedVideo = tracks.groups
-          .filter { it.type == androidx.media3.common.C.TRACK_TYPE_VIDEO }
-          .flatMap { g -> (0 until g.length).mapNotNull { idx -> if (g.isTrackSelected(idx)) g.getTrackFormat(idx) else null } }
-        val selectedAudio = tracks.groups
-          .filter { it.type == androidx.media3.common.C.TRACK_TYPE_AUDIO }
-          .flatMap { g -> (0 until g.length).mapNotNull { idx -> if (g.isTrackSelected(idx)) g.getTrackFormat(idx) else null } }
+      override fun onTracksChanged(tracks: Tracks) = Unit
 
-        val videoDesc = selectedVideo.firstOrNull()?.let { f ->
-          "mime=${f.sampleMimeType} codecs=${f.codecs} ${f.width}x${f.height}"
-        } ?: "none"
-        val audioDesc = selectedAudio.firstOrNull()?.let { f ->
-          "mime=${f.sampleMimeType} codecs=${f.codecs} ch=${f.channelCount} sr=${f.sampleRate}"
-        } ?: "none"
-        AppLog.i("DTV-Player", "tracks url=$url video=$videoDesc audio=$audioDesc")
-      }
+      override fun onVideoSizeChanged(videoSize: VideoSize) = reportVideoSize(videoSize)
 
-      override fun onVideoSizeChanged(videoSize: VideoSize) {
-        val rawW = videoSize.width
-        val rawH = videoSize.height
-        val rotation = videoSize.unappliedRotationDegrees
-        val pixelRatio = videoSize.pixelWidthHeightRatio
-
-        val (w, h) = if (rotation == 90 || rotation == 270) rawH to rawW else rawW to rawH
-        val aspect = if (w > 0 && h > 0) (w.toFloat() * pixelRatio) / h.toFloat() else null
-
-        AppLog.i(
-          "DTV-Player",
-          "video size url=$url size=${rawW}x${rawH} rotation=$rotation pixelRatio=$pixelRatio aspect=$aspect",
-        )
-        onVideoAspectRatioChanged(aspect)
-      }
-
-      override fun onRenderedFirstFrame() {
-        AppLog.i("DTV-Player", "rendered first frame url=$url")
-      }
+      override fun onRenderedFirstFrame() = reportVideoSize(player.videoSize)
     }
     player.addListener(listener)
+    reportVideoSize(player.videoSize)
     onDispose { player.removeListener(listener) }
   }
 

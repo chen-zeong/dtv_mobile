@@ -8,12 +8,10 @@ import androidx.core.view.WindowCompat
 import dtv.mobile.App
 import dtv.mobile.repo.android.AndroidDtvRepository
 import dtv.mobile.state.SubscriptionStoreAndroid
-import dtv.mobile.util.AppLog
 
 class MainActivity : ComponentActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
-    AppLog.init(applicationContext)
     WindowCompat.setDecorFitsSystemWindows(window, false)
     setContent {
       val repo = remember { AndroidDtvRepository(applicationContext) }

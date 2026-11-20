@@ -1,7 +1,6 @@
 package dtv.mobile.platform.douyin
 
 import android.content.Context
-import dtv.mobile.util.AppLog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.mozilla.javascript.Context as RhinoContext
@@ -62,7 +61,6 @@ internal class DouyinWebcastSignatureAndroid(
     //   ReferenceError: "w_0x42f5" is not defined
     // Move `function w_0x42f5(){...}` to the beginning of the block to make it available before first use.
     return runCatching { moveBlockFunctionEarlier(src, functionName = "w_0x42f5") }
-      .onFailure { AppLog.w(TAG, "douyin sign.js patch failed; continuing without patch", it) }
       .getOrDefault(src)
   }
 
@@ -173,10 +171,8 @@ internal class DouyinWebcastSignatureAndroid(
         val out = cx.evaluateString(s, script, "[get_sign]", 1, null)
         val sig = RhinoContext.toString(out).trim()
         if (sig.isBlank()) error("empty douyin signature")
-        AppLog.d(TAG, "douyin signature ok md5=$md5 sig=$sig")
         sig
       } catch (t: Throwable) {
-        AppLog.e(TAG, "douyin signature failed", t)
         throw t
       } finally {
         RhinoContext.exit()

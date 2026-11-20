@@ -67,6 +67,7 @@ import dtv.mobile.ui.components.HomeStreamerCard
 import dtv.mobile.ui.components.NetworkImage
 import dtv.mobile.ui.components.PullToRefreshBox
 import dtv.mobile.util.normalizeHttpUrl
+import dtv.mobile.util.runSuspendCatching
 import kotlinx.coroutines.launch
 
 @Composable
@@ -119,7 +120,7 @@ fun HomeScreen(
       if (refreshing) return@PullToRefreshBox
       scope.launch {
         refreshing = true
-        runCatching { appState.refreshFollowedStreamerCards() }
+        runSuspendCatching { appState.refreshFollowedStreamerCards() }
         refreshing = false
       }
     },

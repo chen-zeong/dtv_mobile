@@ -43,6 +43,7 @@ import dtv.mobile.sync.buildMobileLanSyncPayload
 import dtv.mobile.sync.normalizeImportTarget
 import dtv.mobile.sync.rememberLanSyncController
 import dtv.mobile.ui.system.rememberQrCodeScanLauncher
+import dtv.mobile.util.runSuspendCatching
 import kotlinx.coroutines.launch
 
 @Composable
@@ -75,7 +76,7 @@ fun SyncScreen(
     importError = null
     importResult = null
     scope.launch {
-      runCatching {
+      runSuspendCatching {
         val (baseUrl, token) = normalizeImportTarget(target, tokenInput.ifBlank { LAN_SYNC_DEFAULT_TOKEN })
         val payload = LanSyncClient.fetchPayload(baseUrl, token)
         val result = applyIncrementalLanSyncImport(appState, payload)
@@ -95,7 +96,7 @@ fun SyncScreen(
   }
 
   LaunchedEffect(Unit) {
-    serverInfo = runCatching { controller.serverStatus() }.getOrNull()
+    serverInfo = runSuspendCatching { controller.serverStatus() }.getOrNull()
   }
 
   Column(
@@ -156,7 +157,7 @@ fun SyncScreen(
                   exportBusy = true
                   exportError = null
                   scope.launch {
-                    runCatching {
+                    runSuspendCatching {
                       val payload = buildMobileLanSyncPayload(appState)
                       serverInfo = controller.startServer(payload)
                     }.onFailure { exportError = it.message ?: it.toString() }
@@ -174,9 +175,9 @@ fun SyncScreen(
                   exportBusy = true
                   exportError = null
                   scope.launch {
-                    runCatching { controller.stopServer() }
+                    runSuspendCatching { controller.stopServer() }
                       .onFailure { exportError = it.message ?: it.toString() }
-                    serverInfo = runCatching { controller.serverStatus() }.getOrNull()
+                    serverInfo = runSuspendCatching { controller.serverStatus() }.getOrNull()
                     exportBusy = false
                   }
                 },
@@ -189,7 +190,7 @@ fun SyncScreen(
             FilledTonalButton(
               onClick = {
                 exportError = null
-                scope.launch { serverInfo = runCatching { controller.serverStatus() }.getOrNull() }
+                scope.launch { serverInfo = runSuspendCatching { controller.serverStatus() }.getOrNull() }
               },
             ) {
               Text("刷新状态")
@@ -222,7 +223,7 @@ fun SyncScreen(
                 discoverBusy = true
                 discoverError = null
                 scope.launch {
-                  runCatching { peers = controller.discoverPeers() }
+                  runSuspendCatching { peers = controller.discoverPeers() }
                     .onFailure { discoverError = it.message ?: it.toString() }
                   discoverBusy = false
                 }

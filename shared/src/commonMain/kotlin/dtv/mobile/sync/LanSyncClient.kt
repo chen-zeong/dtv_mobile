@@ -20,9 +20,11 @@ object LanSyncClient {
   suspend fun fetchPayload(baseUrl: String, token: String): LanSyncPayload {
     val client = createHttpClient()
     try {
-      return client.get("$baseUrl$LAN_SYNC_PAYLOAD_PATH") {
+      val payload: LanSyncPayload = client.get("$baseUrl$LAN_SYNC_PAYLOAD_PATH") {
         parameter("token", token)
       }.body()
+      validateLanSyncPayload(payload)
+      return payload
     } finally {
       client.close()
     }

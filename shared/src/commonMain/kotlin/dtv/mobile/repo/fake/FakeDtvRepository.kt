@@ -8,12 +8,16 @@ import dtv.mobile.repo.DouyuCate3
 import dtv.mobile.repo.DouyuCategories
 import dtv.mobile.repo.DouyuPlayInfo
 import dtv.mobile.repo.DouyuPlayVariant
-import dtv.mobile.repo.DanmakuMessage
 import dtv.mobile.repo.BilibiliQrCode
 import dtv.mobile.repo.BilibiliQrPollResult
 import dtv.mobile.repo.BilibiliQrStatus
+import dtv.mobile.repo.DanmakuEvent
 import dtv.mobile.repo.DtvRepository
 import dtv.mobile.repo.PagedResult
+import dtv.mobile.repo.PlaybackLine
+import dtv.mobile.repo.PlaybackOptions
+import dtv.mobile.repo.PlaybackQuality
+import dtv.mobile.repo.ResolvedPlayback
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlin.random.Random
@@ -112,11 +116,7 @@ class FakeDtvRepository : DtvRepository {
     )
   }
 
-  override fun observeDouyuDanmaku(roomId: String): Flow<DanmakuMessage> = emptyFlow()
-
-  override fun observeHuyaDanmaku(roomId: String): Flow<DanmakuMessage> = emptyFlow()
-
-  override fun observeDouyinDanmaku(webRid: String): Flow<DanmakuMessage> = emptyFlow()
+  override fun observeDanmaku(platform: Platform, roomId: String): Flow<DanmakuEvent> = emptyFlow()
 
   override suspend fun fetchHuyaLiveList(gid: String, page: Int, limit: Int): PagedResult<Streamer> {
     val start = (page - 1).coerceAtLeast(0) * limit
@@ -150,7 +150,42 @@ class FakeDtvRepository : DtvRepository {
     return "https://example.invalid/bilibili/$roomId.m3u8"
   }
 
-  override fun observeBilibiliDanmaku(roomId: String): Flow<DanmakuMessage> = emptyFlow()
+  override suspend fun fetchPlaybackOptions(platform: Platform, roomId: String): PlaybackOptions {
+    return PlaybackOptions(
+      lines = listOf(
+        PlaybackLine(
+          id = "hls",
+          label = "HLS",
+          qualities = listOf(
+            PlaybackQuality(id = "origin", label = "原画"),
+            PlaybackQuality(id = "hd", label = "高清"),
+          ),
+        ),
+        PlaybackLine(
+          id = "flv",
+          label = "FLV",
+          qualities = listOf(
+            PlaybackQuality(id = "origin", label = "原画"),
+          ),
+        ),
+      ),
+      defaultLineId = "hls",
+      defaultQualityId = "origin",
+    )
+  }
+
+  override suspend fun resolvePlayback(
+    platform: Platform,
+    roomId: String,
+    qualityId: String?,
+    lineId: String?,
+  ): ResolvedPlayback {
+    return ResolvedPlayback(
+      url = "https://example.invalid/${platform.name.lowercase()}/$roomId.m3u8",
+      qualityId = qualityId ?: "origin",
+      lineId = lineId ?: "hls",
+    )
+  }
 
   override suspend fun generateBilibiliQrCode(): BilibiliQrCode {
     return BilibiliQrCode(url = "https://example.invalid/bili-qr", qrcodeKey = "fake-key")

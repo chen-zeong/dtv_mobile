@@ -75,8 +75,16 @@ class DouyuStreamUrlResolverAndroid(
     val room = resp.room ?: error("Missing room data")
     val realRoomId = jsonElementToString(room.roomId)?.trim().orEmpty()
     if (realRoomId.isEmpty()) error("Invalid room_id")
-    val showStatus = jsonElementToInt(room.showStatus) ?: 0
-    return realRoomId to (showStatus == 1)
+    val showStatus = jsonElementToInt(room.showStatus)?.toLong()
+    val videoLoop = (
+      jsonElementToInt(room.videoLoop)
+        ?: jsonElementToInt(room.videoLoopSnakeCase)
+      )?.toLong()
+    val isLoop = (
+      jsonElementToInt(room.isLoop)
+        ?: jsonElementToInt(room.isLoopSnakeCase)
+      )?.toLong()
+    return realRoomId to (resolveDouyuLiveStatus(showStatus, videoLoop, isLoop) == true)
   }
 
   private suspend fun buildSignParams(roomId: String): String {

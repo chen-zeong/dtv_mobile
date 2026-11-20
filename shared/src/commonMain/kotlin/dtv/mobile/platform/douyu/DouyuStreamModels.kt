@@ -13,6 +13,10 @@ data class DouyuBetardResponse(
 data class DouyuBetardRoom(
   @SerialName("room_id") val roomId: JsonElement? = null,
   @SerialName("show_status") val showStatus: JsonElement? = null,
+  @SerialName("videoLoop") val videoLoop: JsonElement? = null,
+  @SerialName("video_loop") val videoLoopSnakeCase: JsonElement? = null,
+  @SerialName("isLoop") val isLoop: JsonElement? = null,
+  @SerialName("is_loop") val isLoopSnakeCase: JsonElement? = null,
 )
 
 @Serializable
