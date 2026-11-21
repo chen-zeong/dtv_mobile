@@ -1,17 +1,30 @@
 package dtv.mobile.platform.bilibili
 
-import dtv.mobile.util.AppLog
+import dtv.mobile.platform.danmaku.DeferredDanmakuConnection
+import dtv.mobile.platform.danmaku.okHttpTermination
+import dtv.mobile.repo.DanmakuConnectionException
+import dtv.mobile.repo.DanmakuFailure
 import dtv.mobile.repo.DanmakuMessage
+import dtv.mobile.repo.DanmakuProtocolConnection
+import dtv.mobile.repo.DanmakuProtocolConnector
+import dtv.mobile.repo.DanmakuProtocolSink
+import dtv.mobile.repo.DanmakuTermination
+import dtv.mobile.repo.DanmakuTerminationKind
+import dtv.mobile.util.runSuspendCatching
 import io.ktor.client.HttpClient
 import io.ktor.client.request.get
 import io.ktor.client.request.headers
 import io.ktor.client.statement.bodyAsText
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.jsonArray
@@ -26,19 +39,16 @@ import okio.ByteString
 import java.io.ByteArrayOutputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
-import java.util.concurrent.atomic.AtomicReference
 import java.util.zip.Inflater
 import java.security.MessageDigest
 import kotlin.math.min
-import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.isActive
-import java.util.concurrent.atomic.AtomicBoolean
 
 class BilibiliDanmakuClientAndroid(
   private val httpClient: HttpClient,
   private val cookieProvider: () -> String?,
   private val okHttp: OkHttpClient = OkHttpClient(),
-) {
+) : DanmakuProtocolConnector {
+  override val watchdogTimeoutMs: Long = 90_000L
   companion object {
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
 
@@ -180,8 +190,6 @@ class BilibiliDanmakuClientAndroid(
     val root = json.parseToJsonElement(text).jsonObject
     val code = root["code"]?.jsonPrimitive?.content?.toIntOrNull() ?: -1
     if (code != 0) {
-      val msg = root["message"]?.jsonPrimitive?.content
-      AppLog.w("DTV-Bilibili", "getDanmuInfo failed code=$code msg=$msg roomId=$roomId")
       error("B站弹幕参数获取失败(code=$code)")
     }
 
@@ -204,7 +212,7 @@ class BilibiliDanmakuClientAndroid(
     if (token.isBlank()) error("B站弹幕 token 为空")
 
     val resolvedEndpoints = endpoints.ifEmpty { listOf(Endpoint(host = "broadcastlv.chat.bilibili.com", wssPort = 443)) }
-    val uid = runCatching { getNavInfo().mid }.getOrNull() ?: 0L
+    val uid = runSuspendCatching { getNavInfo().mid }.getOrNull() ?: 0L
     return DanmuInfo(roomId = realRoomId, uid = uid, token = token, endpoints = resolvedEndpoints)
   }
 
@@ -266,137 +274,167 @@ class BilibiliDanmakuClientAndroid(
     return DanmakuMessage(roomId = "", user = user.ifBlank { "匿名" }, content = content)
   }
 
-  private fun cookieFlagsForLog(cookieHeader: String?): String {
-    val raw = cookieHeader?.lowercase().orEmpty()
-    val hasSessdata = raw.contains("sessdata=")
-    val hasBiliJct = raw.contains("bili_jct=")
-    return "sess=$hasSessdata jct=$hasBiliJct len=${cookieHeader?.length ?: 0}"
+  override suspend fun connect(
+    roomId: String,
+    sink: DanmakuProtocolSink,
+  ): DanmakuProtocolConnection = withContext(Dispatchers.IO) {
+    val info = try {
+      fetchDanmuInfo(roomId)
+    } catch (t: CancellationException) {
+      throw t
+    } catch (t: Throwable) {
+      throw DanmakuConnectionException(
+        failure = DanmakuFailure.Authentication,
+        message = t.message ?: "获取 B站弹幕参数失败",
+        cause = t,
+      )
+    }
+
+    val authJson =
+      """{"uid":${info.uid.coerceAtLeast(0L)},"roomid":${info.roomId},"protover":1,"platform":"web","type":2,"key":"${info.token}"}""".encodeToByteArray()
+    val authPacket = buildPacket(op = 7, body = authJson, ver = 1, seq = 1)
+    val heartbeatPacket = buildPacket(op = 2, body = ByteArray(0), ver = 1, seq = 1)
+    var lastFailure: DanmakuFailure = DanmakuFailure.Protocol
+
+    for (endpoint in info.endpoints) {
+      val result = runCatching {
+        connectEndpoint(
+          roomId = roomId,
+          wsUrl = if (endpoint.wssPort == 443) {
+            "wss://${endpoint.host}/sub"
+          } else {
+            "wss://${endpoint.host}:${endpoint.wssPort}/sub"
+          },
+          authPacket = authPacket,
+          heartbeatPacket = heartbeatPacket,
+          sink = sink,
+        )
+      }
+      result.getOrNull()?.let { return@withContext it }
+      val error = result.exceptionOrNull()
+      if (error is CancellationException) throw error
+      lastFailure = (error as? DanmakuConnectionException)?.failure ?: DanmakuFailure.Protocol
+    }
+
+    throw DanmakuConnectionException(
+      failure = lastFailure,
+      message = "B站弹幕 WebSocket 握手失败",
+    )
   }
 
-  fun observe(roomId: String): Flow<DanmakuMessage> = callbackFlow {
-    val socketRef = AtomicReference<WebSocket?>(null)
+  private suspend fun connectEndpoint(
+    roomId: String,
+    wsUrl: String,
+    authPacket: ByteArray,
+    heartbeatPacket: ByteArray,
+    sink: DanmakuProtocolSink,
+  ): DanmakuProtocolConnection = withContext(Dispatchers.IO) {
+    val ready = CompletableDeferred<DanmakuProtocolConnection>()
+    val termination = CompletableDeferred<DanmakuTermination>()
+    val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    var heartbeatJob: kotlinx.coroutines.Job? = null
 
-    val job = launch(Dispatchers.IO) {
-      val info = runCatching { fetchDanmuInfo(roomId) }
-        .onFailure { AppLog.e("DTV-Bilibili", "fetch danmu info failed roomId=$roomId", it) }
-        .getOrNull()
-        ?: return@launch
-
-      val authJson =
-        // protover=1 requests plain JSON (avoid zlib/brotli differences across regions).
-        """{"uid":${info.uid.coerceAtLeast(0L)},"roomid":${info.roomId},"protover":1,"platform":"web","type":2,"key":"${info.token}"}""".encodeToByteArray()
-      val authPacket = buildPacket(op = 7, body = authJson, ver = 1, seq = 1)
-      val heartbeatPacket = buildPacket(op = 2, body = ByteArray(0), ver = 1, seq = 1)
-
-      var backoffMs = 1_200L
-      while (isActive) {
-        var connectedOnce = false
-        var sessionHadAuthOk = false
-
-        for (ep in info.endpoints) {
-          if (!isActive) break
-          val wsUrl = if (ep.wssPort == 443) "wss://${ep.host}/sub" else "wss://${ep.host}:${ep.wssPort}/sub"
-          val cookieForWs = cookieProvider()?.trim().orEmpty().ifBlank { "" }
-          AppLog.i(
-            "DTV-Bilibili",
-            "danmaku ws connecting url=$wsUrl roomId=$roomId(real=${info.roomId}) cookie(${cookieFlagsForLog(cookieForWs)})",
-          )
-
-          val sessionClosed = CompletableDeferred<Throwable?>()
-          val authOk = AtomicBoolean(false)
-
-          val req = Request.Builder()
-            .url(wsUrl)
-            .addHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
-            .addHeader("Referer", "https://live.bilibili.com/")
-            .addHeader("Origin", "https://live.bilibili.com")
-            .build()
-
-          val listener = object : WebSocketListener() {
-            var msgCount = 0
-
-            override fun onOpen(webSocket: WebSocket, response: Response) {
-              socketRef.set(webSocket)
-              connectedOnce = true
-              AppLog.i("DTV-Bilibili", "danmaku ws opened roomId=$roomId url=$wsUrl")
-              webSocket.send(ByteString.of(*authPacket))
-            }
-
-            override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
-              val raw = bytes.toByteArray()
-              for (p in parsePackets(raw)) {
-                when (p.op) {
-                  8 -> {
-                    authOk.set(true)
-                    sessionHadAuthOk = true
-                    AppLog.i("DTV-Bilibili", "danmaku auth ok roomId=$roomId ver=${p.ver} bodyLen=${p.body.size}")
-                  }
-                  5 -> {
-                    msgCount++
-                    if (msgCount == 1 || msgCount % 50 == 0) {
-                      AppLog.i("DTV-Bilibili", "danmaku messages received roomId=$roomId count=$msgCount ver=${p.ver} bodyLen=${p.body.size}")
-                    }
-                    if (p.ver == 2) {
-                      val inflated = runCatching { inflateZlib(p.body) }.getOrNull() ?: continue
-                      for (inner in parsePackets(inflated)) {
-                        if (inner.op != 5) continue
-                        val msg = decodeChatMessageOrNull(inner.body) ?: continue
-                        trySend(msg.copy(roomId = roomId))
-                      }
-                    } else {
-                      val msg = decodeChatMessageOrNull(p.body) ?: continue
-                      trySend(msg.copy(roomId = roomId))
-                    }
-                  }
-                }
-              }
-            }
-
-            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-              AppLog.e("DTV-Bilibili", "bilibili danmaku ws failure roomId=$roomId url=$wsUrl", t)
-              sessionClosed.complete(t)
-            }
-
-            override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-              AppLog.w("DTV-Bilibili", "danmaku ws closed roomId=$roomId url=$wsUrl code=$code reason=$reason")
-              sessionClosed.complete(null)
-            }
-          }
-
-          val socket = okHttp.newWebSocket(req, listener)
-          socketRef.set(socket)
-
-          val heartbeatJob = launch(Dispatchers.IO) {
-            while (isActive) {
-              delay(30_000)
-              val s = socketRef.get() ?: break
-              if (s != socket) break
-              val ok = s.send(ByteString.of(*heartbeatPacket))
-              if (!ok) break
-            }
-          }
-
-          sessionClosed.await()
-          heartbeatJob.cancel()
-          runCatching { socket.close(1000, "reconnect") }
-
-          if (authOk.get()) {
-            // This endpoint worked. Break endpoint loop and reconnect with backoff when needed.
-            break
-          }
-        }
-
-        // If we never connected at all, expand backoff a bit; otherwise keep it small.
-        backoffMs = if (!connectedOnce) (backoffMs * 2).coerceAtMost(12_000L) else 1_600L
-        if (!isActive) break
-        // If we had a successful session before, wait a bit before reconnecting.
-        delay(backoffMs)
+    fun failBeforeReady(result: DanmakuTermination) {
+      termination.complete(result)
+      if (!ready.isCompleted) {
+        ready.completeExceptionally(
+          DanmakuConnectionException(
+            failure = result.failure ?: DanmakuFailure.Network,
+            message = result.detail ?: "B站 WebSocket 在认证前关闭",
+          ),
+        )
       }
     }
 
-    awaitClose {
-      runCatching { socketRef.getAndSet(null)?.close(1000, "close") }
-      job.cancel()
+    val request = Request.Builder()
+      .url(wsUrl)
+      .addHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
+      .addHeader("Referer", "https://live.bilibili.com/")
+      .addHeader("Origin", "https://live.bilibili.com")
+      .build()
+
+    val listener = object : WebSocketListener() {
+      override fun onOpen(webSocket: WebSocket, response: Response) {
+        sink.onAuthenticating()
+        webSocket.send(ByteString.of(*authPacket))
+      }
+
+      override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
+        sink.onInbound()
+        for (packet in parsePackets(bytes.toByteArray())) {
+          when (packet.op) {
+            8 -> {
+              sink.onInbound()
+              heartbeatJob?.cancel()
+              heartbeatJob = scope.launch {
+                while (isActive) {
+                  delay(30_000L)
+                  if (!webSocket.send(ByteString.of(*heartbeatPacket))) break
+                  sink.onInbound()
+                }
+              }
+              ready.complete(
+                DeferredDanmakuConnection(
+                  termination = termination,
+                  closeAction = {
+                    heartbeatJob.cancel()
+                    webSocket.close(1000, "close")
+                    scope.cancel()
+                  },
+                ),
+              )
+            }
+
+            5 -> {
+              if (packet.ver == 2) {
+                val inflated = runCatching { inflateZlib(packet.body) }
+                  .onFailure { sink.onProtocolError() }
+                  .getOrNull()
+                  ?: continue
+                for (inner in parsePackets(inflated)) {
+                  if (inner.op != 5) continue
+                  val message = decodeChatMessageOrNull(inner.body) ?: continue
+                  sink.onMessage(message.copy(roomId = roomId))
+                }
+              } else {
+                val message = decodeChatMessageOrNull(packet.body) ?: continue
+                sink.onMessage(message.copy(roomId = roomId))
+              }
+            }
+          }
+        }
+      }
+
+      override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+        webSocket.close(code, reason)
+      }
+
+      override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+        heartbeatJob?.cancel()
+        failBeforeReady(DanmakuTermination(DanmakuTerminationKind.Closed, detail = reason))
+        scope.cancel()
+      }
+
+      override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+        heartbeatJob?.cancel()
+        failBeforeReady(okHttpTermination(response, t.message))
+        scope.cancel()
+      }
+    }
+
+    try {
+      val socket = okHttp.newWebSocket(request, listener)
+      try {
+        ready.await()
+      } catch (t: Throwable) {
+        heartbeatJob?.cancel()
+        socket.cancel()
+        scope.cancel()
+        throw t
+      }
+    } catch (t: Throwable) {
+      scope.cancel()
+      throw t
     }
   }
 }

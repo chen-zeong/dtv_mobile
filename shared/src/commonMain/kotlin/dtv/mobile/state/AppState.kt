@@ -12,6 +12,8 @@ import dtv.mobile.model.Streamer
 import dtv.mobile.repo.DtvRepository
 import dtv.mobile.repo.fake.FakeDtvRepository
 import kotlinx.serialization.Serializable
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 @Serializable
 data class SubscribedPartition(
@@ -43,6 +45,8 @@ class AppState(
   val subscribedPartitions = mutableStateListOf<SubscribedPartition>()
   val danmuBlockKeywords = mutableStateListOf<String>()
   private val simpleModeByPlatform = mutableStateMapOf<Platform, Boolean>()
+  private val playbackPreferences = mutableStateMapOf<String, PlaybackPreference>()
+  private val followedRefreshMutex = Mutex()
 
   init {
     themeMode = subscriptionStore.loadThemeMode()
@@ -57,6 +61,12 @@ class AppState(
 
     subscriptionStore.loadSimpleModeByPlatform().forEach { entry ->
       simpleModeByPlatform[entry.platform] = entry.enabled
+    }
+    subscriptionStore.loadPlaybackPreferences().forEach { entry ->
+      val roomId = entry.roomId?.trim().orEmpty()
+      if (roomId.isNotEmpty()) {
+        playbackPreferences[playbackPreferenceKey(entry.platform, roomId)] = entry.copy(roomId = roomId)
+      }
     }
   }
 
@@ -147,6 +157,31 @@ class AppState(
     subscriptionStore.saveSimpleModeByPlatform(entries)
   }
 
+  fun playbackPreference(platform: Platform, roomId: String): PlaybackPreference =
+    playbackPreferences[playbackPreferenceKey(platform, roomId)]
+      ?: PlaybackPreference(platform = platform, roomId = roomId)
+
+  fun updatePlaybackPreference(
+    platform: Platform,
+    roomId: String,
+    qualityId: String?,
+    lineId: String?,
+  ) {
+    val normalizedRoomId = roomId.trim()
+    if (normalizedRoomId.isEmpty()) return
+    playbackPreferences[playbackPreferenceKey(platform, normalizedRoomId)] = PlaybackPreference(
+      platform = platform,
+      roomId = normalizedRoomId,
+      qualityId = qualityId,
+      lineId = lineId,
+    )
+    subscriptionStore.savePlaybackPreferences(playbackPreferences.values.toList())
+  }
+
+  private fun playbackPreferenceKey(platform: Platform, roomId: String): String {
+    return "${platform.name}:${roomId.trim()}"
+  }
+
   suspend fun refreshFollowedLiveStatus() {
     val snapshot = followedStreamers.toList()
     snapshot.forEach { streamer ->
@@ -163,13 +198,28 @@ class AppState(
   }
 
   suspend fun refreshFollowedStreamerCards() {
-    val snapshot = followedStreamers.toList()
-    val updated = snapshot.map { s ->
-      repo.fetchFollowedStreamerSnapshot(s)?.let { it.copy(platform = s.platform, roomId = s.roomId) } ?: s
+    followedRefreshMutex.withLock {
+      val snapshot = followedStreamers.toList()
+      var changed = false
+      snapshot.forEach { original ->
+        val refreshed = repo.fetchFollowedStreamerSnapshot(original) ?: return@forEach
+        val key = streamerKey(original)
+        val index = followedStreamers.indexOfFirst { streamerKey(it) == key }
+        if (index >= 0) {
+          val updated = refreshed.copy(
+            platform = original.platform,
+            roomId = original.roomId,
+          )
+          if (followedStreamers[index] != updated) {
+            followedStreamers[index] = updated
+            changed = true
+          }
+        }
+      }
+      if (changed) {
+        subscriptionStore.saveFollowedStreamers(followedStreamers.toList())
+      }
     }
-    followedStreamers.clear()
-    followedStreamers.addAll(updated)
-    subscriptionStore.saveFollowedStreamers(followedStreamers.toList())
   }
 
   fun moveFollowedStreamer(fromIndex: Int, toIndex: Int) {

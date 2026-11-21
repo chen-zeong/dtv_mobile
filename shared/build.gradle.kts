@@ -12,12 +12,12 @@ kotlin {
   sourceSets {
     val commonMain by getting {
       dependencies {
-        implementation(compose.runtime)
-        implementation(compose.foundation)
-        implementation(compose.material)
-        implementation(compose.material3)
-        implementation(compose.materialIconsExtended)
-        implementation(compose.ui)
+        implementation("org.jetbrains.compose.runtime:runtime:1.9.3")
+        implementation("org.jetbrains.compose.foundation:foundation:1.9.3")
+        implementation("org.jetbrains.compose.material:material:1.9.3")
+        implementation("org.jetbrains.compose.material3:material3:1.9.0")
+        implementation("org.jetbrains.compose.material:material-icons-extended:1.7.3")
+        implementation("org.jetbrains.compose.ui:ui:1.9.3")
 
         implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.1")
         implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
@@ -34,7 +34,6 @@ kotlin {
         val ktorVersion = "2.3.12"
         implementation("io.ktor:ktor-client-cio:$ktorVersion")
         implementation("io.ktor:ktor-client-okhttp:$ktorVersion")
-        implementation("io.ktor:ktor-client-logging:$ktorVersion")
         implementation("io.ktor:ktor-client-websockets:$ktorVersion")
         implementation("io.ktor:ktor-server-core:$ktorVersion")
         implementation("io.ktor:ktor-server-cio:$ktorVersion")
@@ -55,6 +54,21 @@ kotlin {
         implementation("androidx.media3:media3-ui:$media3Version")
       }
     }
+
+    val commonTest by getting {
+      dependencies {
+        implementation(kotlin("test"))
+      }
+    }
+
+    val androidInstrumentedTest by getting {
+      dependencies {
+        implementation(kotlin("test"))
+        implementation("org.jetbrains.compose.ui:ui-test:1.9.3")
+        implementation("androidx.test:runner:1.6.2")
+      }
+    }
+
   }
 }
 
@@ -65,6 +79,7 @@ android {
 
   defaultConfig {
     minSdk = 26
+    testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
 
   compileOptions {

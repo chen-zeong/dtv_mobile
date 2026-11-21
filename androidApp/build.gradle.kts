@@ -6,6 +6,7 @@ plugins {
 }
 
 import java.util.Properties
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 val keystoreProperties = Properties()
 val keystorePropertiesFile = file("keystore.properties")
@@ -26,6 +27,7 @@ android {
     targetSdk = 36
     versionCode = 1
     versionName = "0.1.1"
+    testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
 
   buildFeatures { compose = true }
@@ -39,8 +41,10 @@ android {
     targetCompatibility = JavaVersion.VERSION_17
   }
 
-  kotlinOptions {
-    jvmTarget = "17"
+  kotlin {
+    compilerOptions {
+      jvmTarget.set(JvmTarget.JVM_17)
+    }
   }
 
   signingConfigs {
@@ -57,7 +61,9 @@ android {
   buildTypes {
     getByName("release") {
       isMinifyEnabled = false
-      signingConfig = signingConfigs.getByName("release")
+      if (hasReleaseKeystore) {
+        signingConfig = signingConfigs.getByName("release")
+      }
     }
   }
 }
@@ -69,9 +75,16 @@ dependencies {
   implementation("androidx.core:core-ktx:1.13.1")
   implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.6")
 
-  implementation(compose.material3)
-  implementation(compose.ui)
-  implementation(compose.foundation)
-  implementation(compose.runtime)
-  implementation(compose.materialIconsExtended)
+  implementation("org.jetbrains.compose.material3:material3:1.9.0")
+  implementation("org.jetbrains.compose.ui:ui:1.9.3")
+  implementation("org.jetbrains.compose.foundation:foundation:1.9.3")
+  implementation("org.jetbrains.compose.runtime:runtime:1.9.3")
+  implementation("org.jetbrains.compose.material:material-icons-extended:1.7.3")
+
+  androidTestImplementation("androidx.test.ext:junit:1.2.1")
+  androidTestImplementation("androidx.test:runner:1.6.2")
+}
+
+tasks.matching { it.name == "preBuild" }.configureEach {
+  dependsOn(rootProject.tasks.named("verifyNoAppLogging"))
 }

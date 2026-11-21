@@ -19,6 +19,7 @@ import androidx.compose.ui.unit.dp
 import dtv.mobile.state.AppState
 import dtv.mobile.ui.components.PullToRefreshBox
 import dtv.mobile.ui.components.StreamerCard
+import dtv.mobile.util.runSuspendCatching
 import kotlinx.coroutines.launch
 
 @Composable
@@ -52,7 +53,7 @@ fun FollowScreen(
       if (refreshing) return@PullToRefreshBox
       scope.launch {
         refreshing = true
-        runCatching { appState.refreshFollowedStreamerCards() }
+        runSuspendCatching { appState.refreshFollowedStreamerCards() }
         refreshing = false
       }
     },

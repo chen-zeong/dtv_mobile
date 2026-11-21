@@ -3,6 +3,8 @@ package dtv.mobile.sync
 import android.content.Context
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
+import android.os.Handler
+import android.os.Looper
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
@@ -275,20 +277,51 @@ private suspend fun discoverPeersInternal(nsdManager: NsdManager, timeoutMs: Lon
   return suspendCancellableCoroutine { cont ->
     val found = ConcurrentHashMap<String, LanSyncDiscoveredPeer>()
     val scope = CoroutineScope(Dispatchers.Main.immediate + SupervisorJob())
+    val mainHandler = Handler(Looper.getMainLooper())
+    val pendingServices = java.util.ArrayDeque<NsdServiceInfo>()
+    val seenServiceNames = HashSet<String>()
+    var resolving = false
 
-    val resolveListener = object : NsdManager.ResolveListener {
-      override fun onResolveFailed(serviceInfo: NsdServiceInfo, errorCode: Int) = Unit
+    fun resolveNext() {
+      if (resolving || !cont.isActive) return
+      val next = pendingServices.pollFirst() ?: return
+      resolving = true
+      val resolveListener = object : NsdManager.ResolveListener {
+        override fun onResolveFailed(serviceInfo: NsdServiceInfo, errorCode: Int) {
+          mainHandler.post {
+            resolving = false
+            resolveNext()
+          }
+        }
 
-      override fun onServiceResolved(serviceInfo: NsdServiceInfo) {
-        val host = serviceInfo.host?.hostAddress ?: return
-        val port = serviceInfo.port
-        val name = serviceInfo.serviceName ?: host
-        val kind = serviceInfo.attributes["kind"]?.toString(Charsets.UTF_8)
-        val path = serviceInfo.attributes["path"]?.toString(Charsets.UTF_8)
-        if (kind != LAN_SYNC_KIND || path != LAN_SYNC_HTTP_PATH) return
-        val token = serviceInfo.attributes["token"]?.toString(Charsets.UTF_8)
-        val baseUrl = "http://$host:$port"
-        found[name] = LanSyncDiscoveredPeer(name = name, host = host, port = port, token = token, baseUrl = baseUrl)
+        override fun onServiceResolved(serviceInfo: NsdServiceInfo) {
+          mainHandler.post {
+            val host = serviceInfo.host?.hostAddress
+            val kind = serviceInfo.attributes["kind"]?.toString(Charsets.UTF_8)
+            val path = serviceInfo.attributes["path"]?.toString(Charsets.UTF_8)
+            if (host != null && kind == LAN_SYNC_KIND && path == LAN_SYNC_HTTP_PATH) {
+              val port = serviceInfo.port
+              val name = serviceInfo.serviceName ?: host
+              val token = serviceInfo.attributes["token"]?.toString(Charsets.UTF_8)
+              val baseUrl = "http://$host:$port"
+              found[name] = LanSyncDiscoveredPeer(
+                name = name,
+                host = host,
+                port = port,
+                token = token,
+                baseUrl = baseUrl,
+              )
+            }
+            resolving = false
+            resolveNext()
+          }
+        }
+      }
+      runCatching {
+        nsdManager.resolveService(next, resolveListener)
+      }.onFailure {
+        resolving = false
+        mainHandler.post { resolveNext() }
       }
     }
 
@@ -308,7 +341,13 @@ private suspend fun discoverPeersInternal(nsdManager: NsdManager, timeoutMs: Lon
 
       override fun onServiceFound(serviceInfo: NsdServiceInfo) {
         if (serviceInfo.serviceType != NSD_SERVICE_TYPE) return
-        runCatching { nsdManager.resolveService(serviceInfo, resolveListener) }
+        mainHandler.post {
+          val name = serviceInfo.serviceName.orEmpty()
+          if (seenServiceNames.add(name)) {
+            pendingServices.addLast(serviceInfo)
+            resolveNext()
+          }
+        }
       }
 
       override fun onServiceLost(serviceInfo: NsdServiceInfo) = Unit
@@ -322,7 +361,10 @@ private suspend fun discoverPeersInternal(nsdManager: NsdManager, timeoutMs: Lon
 
     cont.invokeOnCancellation {
       scope.cancel()
-      runCatching { nsdManager.stopServiceDiscovery(discoveryListener) }
+      mainHandler.removeCallbacksAndMessages(null)
+      mainHandler.post {
+        runCatching { nsdManager.stopServiceDiscovery(discoveryListener) }
+      }
     }
 
     // Finish after timeout.

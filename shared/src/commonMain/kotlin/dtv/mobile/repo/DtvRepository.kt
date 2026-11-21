@@ -43,6 +43,29 @@ data class DouyuPlayInfo(
   val variants: List<DouyuPlayVariant>,
 )
 
+data class PlaybackQuality(
+  val id: String,
+  val label: String,
+)
+
+data class PlaybackLine(
+  val id: String,
+  val label: String,
+  val qualities: List<PlaybackQuality> = emptyList(),
+)
+
+data class PlaybackOptions(
+  val lines: List<PlaybackLine> = emptyList(),
+  val defaultLineId: String? = null,
+  val defaultQualityId: String? = null,
+)
+
+data class ResolvedPlayback(
+  val url: String,
+  val qualityId: String? = null,
+  val lineId: String? = null,
+)
+
 data class DanmakuMessage(
   val roomId: String,
   val user: String,
@@ -50,6 +73,7 @@ data class DanmakuMessage(
   val userLevel: Int = 0,
   val fansClubLevel: Int = 0,
   val color: String? = null,
+  val displayId: Long = 0L,
 )
 
 data class BilibiliQrCode(
@@ -99,11 +123,7 @@ interface DtvRepository {
 
   suspend fun resolveDouyuStreamUrl(roomId: String, quality: String? = null, cdn: String? = null): String
 
-  fun observeDouyuDanmaku(roomId: String): Flow<DanmakuMessage>
-
-  fun observeHuyaDanmaku(roomId: String): Flow<DanmakuMessage>
-
-  fun observeDouyinDanmaku(webRid: String): Flow<DanmakuMessage>
+  fun observeDanmaku(platform: Platform, roomId: String): Flow<DanmakuEvent>
 
   suspend fun fetchHuyaLiveList(gid: String, page: Int, limit: Int): PagedResult<Streamer>
 
@@ -123,7 +143,14 @@ interface DtvRepository {
 
   suspend fun resolveBilibiliStreamUrl(roomId: String, qn: Int? = null): String
 
-  fun observeBilibiliDanmaku(roomId: String): Flow<DanmakuMessage>
+  suspend fun fetchPlaybackOptions(platform: Platform, roomId: String): PlaybackOptions
+
+  suspend fun resolvePlayback(
+    platform: Platform,
+    roomId: String,
+    qualityId: String? = null,
+    lineId: String? = null,
+  ): ResolvedPlayback
 
   suspend fun generateBilibiliQrCode(): BilibiliQrCode
 

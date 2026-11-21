@@ -51,6 +51,7 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -74,6 +75,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.style.TextOverflow
@@ -82,17 +84,25 @@ import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.sp
 import dtv.mobile.model.Platform
 import dtv.mobile.model.Streamer
+import dtv.mobile.platform.app.appForegroundState
+import dtv.mobile.repo.DanmakuEvent
+import dtv.mobile.repo.DanmakuFailure
 import dtv.mobile.repo.DanmakuMessage
-import dtv.mobile.repo.DouyuPlayInfo
+import dtv.mobile.repo.DanmakuPhase
+import dtv.mobile.repo.PlaybackSelectionResolver
 import dtv.mobile.state.AppState
+import dtv.mobile.state.PlaybackSessionController
+import dtv.mobile.state.PlaybackSessionPhase
 import dtv.mobile.theme.DtvColors
 import dtv.mobile.ui.components.NetworkImage
+import dtv.mobile.ui.player.DanmakuDisplayIdGenerator
 import dtv.mobile.ui.player.StreamPlayer
+import dtv.mobile.ui.player.PlayerSystemGestureLayer
+import dtv.mobile.ui.player.messagesAfterDisplayId
 import dtv.mobile.ui.system.FullscreenEffect
 import dtv.mobile.ui.system.PlatformBackHandler
 import dtv.mobile.util.normalizeHttpUrl
-import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.CancellationException
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -122,146 +132,101 @@ fun PlayerScreen(
   streamer: Streamer?,
   modifier: Modifier = Modifier,
 ) {
-  var url by remember(streamer?.roomId) { mutableStateOf<String?>(null) }
-  var error by remember(streamer?.roomId) { mutableStateOf<String?>(null) }
-  var loading by remember(streamer?.roomId) { mutableStateOf(false) }
-  var playInfo by remember(streamer?.roomId) { mutableStateOf<DouyuPlayInfo?>(null) }
-  var selectedDouyuRate by remember(streamer?.roomId) { mutableStateOf<String?>(null) }
-  var selectedDouyuCdn by remember(streamer?.roomId) { mutableStateOf<String?>(null) }
-  var selectedDouyinQuality by remember(streamer?.roomId) { mutableStateOf<String?>(null) }
-  var selectedBilibiliQn by remember(streamer?.roomId) { mutableStateOf<Int?>(null) }
+  val scope = rememberCoroutineScope()
+  val playbackController = remember(appState, scope) {
+    PlaybackSessionController(
+      repository = appState.repo,
+      scope = scope,
+      preferenceProvider = appState::playbackPreference,
+      preferenceSaver = appState::updatePlaybackPreference,
+    )
+  }
+  val playbackState by playbackController.state.collectAsState()
   var showSettings by remember(streamer?.roomId) { mutableStateOf(false) }
 
   var danmakuEnabled by remember(streamer?.roomId) { mutableStateOf(true) }
   var danmakuMessages by remember(streamer?.roomId) { mutableStateOf<List<DanmakuMessage>>(emptyList()) }
+  var danmakuEvent by remember(streamer?.roomId) { mutableStateOf<DanmakuEvent?>(null) }
+  var danmakuSequence by remember(streamer?.roomId) { mutableStateOf(0L) }
+  var danmakuRetryNonce by remember(streamer?.roomId) { mutableIntStateOf(0) }
+  val danmakuDisplayIds = remember(streamer?.roomId) { DanmakuDisplayIdGenerator() }
   var danmakuMax by remember { mutableIntStateOf(200) }
+  val appForeground by appForegroundState().collectAsState()
   var videoAspectRatio by remember(streamer?.roomId) { mutableStateOf<Float?>(null) }
   var videoReady by remember(streamer?.roomId) { mutableStateOf(false) }
   var fullscreen by remember(streamer?.roomId) { mutableStateOf(false) }
   var fullscreenEntry by remember(streamer?.roomId) { mutableStateOf(FullscreenEntry.None) }
 
-  val scope = rememberCoroutineScope()
-
   DisposableEffect(Unit) {
     onDispose { appState.playerFullscreen = false }
+  }
+  DisposableEffect(playbackController) {
+    onDispose { playbackController.close() }
   }
   LaunchedEffect(fullscreen) {
     appState.playerFullscreen = fullscreen
   }
 
-  LaunchedEffect(streamer?.roomId) {
-    val s = streamer ?: return@LaunchedEffect
+  LaunchedEffect(playbackController, streamer?.platform, streamer?.roomId, streamer?.isLive) {
+    val s = streamer
     videoAspectRatio = null
     videoReady = false
-    if (!s.isLive) {
-      loading = false
-      error = null
-      url = null
-      playInfo = null
-      return@LaunchedEffect
+    if (s == null || s.isLive == false) {
+      playbackController.clear()
+    } else {
+      playbackController.open(s.platform, s.roomId)
     }
-    loading = true
-    error = null
-    url = null
-    playInfo = null
-    selectedDouyuRate = null
-    selectedDouyuCdn = null
-    selectedDouyinQuality = null
-    selectedBilibiliQn = null
-    when (s.platform) {
-      Platform.Douyu -> {
-        runCatching { appState.repo.resolveDouyuStreamUrl(roomId = s.roomId) }
-          .onSuccess { url = it }
-          .onFailure { error = it.message ?: "获取播放地址失败" }
-        runCatching { appState.repo.fetchDouyuPlayInfo(roomId = s.roomId) }
-          .onSuccess { playInfo = it }
-          .onFailure {
-            if (url == null && error == null) error = it.message ?: "获取清晰度信息失败"
-          }
-      }
-      Platform.Huya -> {
-        runCatching { appState.repo.resolveHuyaStreamUrl(roomId = s.roomId) }
-          .onSuccess { url = it }
-          .onFailure { error = it.message ?: "获取虎牙播放地址失败" }
-      }
-      Platform.Douyin -> {
-        runCatching { appState.repo.resolveDouyinStreamUrl(webRid = s.roomId, desiredQuality = selectedDouyinQuality) }
-          .onSuccess { url = it }
-          .onFailure { error = it.message ?: "获取抖音播放地址失败" }
-      }
-      Platform.Bilibili -> {
-        runCatching { appState.repo.resolveBilibiliStreamUrl(roomId = s.roomId, qn = selectedBilibiliQn) }
-          .onSuccess { url = it }
-          .onFailure { error = it.message ?: "获取B站播放地址失败" }
-      }
-      else -> {
-        error = "暂不支持的平台：${s.platform.title}"
-      }
-    }
-    loading = false
   }
 
   val blockKeywordsLower by remember {
     derivedStateOf { appState.danmuBlockKeywords.map { it.lowercase() }.filter { it.isNotBlank() } }
   }
-
-  LaunchedEffect(streamer?.roomId, streamer?.platform, danmakuEnabled, url, blockKeywordsLower) {
-    val s = streamer ?: return@LaunchedEffect
-    if (!danmakuEnabled) return@LaunchedEffect
-    if (url == null) {
-      danmakuMessages = emptyList()
-      return@LaunchedEffect
-    }
-
-    val flow = when (s.platform) {
-      Platform.Douyu -> appState.repo.observeDouyuDanmaku(s.roomId)
-      Platform.Huya -> appState.repo.observeHuyaDanmaku(s.roomId)
-      Platform.Douyin -> appState.repo.observeDouyinDanmaku(s.roomId)
-      Platform.Bilibili -> appState.repo.observeBilibiliDanmaku(s.roomId)
-      else -> null
-    } ?: return@LaunchedEffect
-
-    danmakuMessages = emptyList()
-    try {
-      flow.collectLatest { msg ->
-        if (blockKeywordsLower.isNotEmpty()) {
-          val contentLower = msg.content.lowercase()
-          if (blockKeywordsLower.any { contentLower.contains(it) }) return@collectLatest
+  val filteredDanmakuMessages by remember {
+    derivedStateOf {
+      val keywords = blockKeywordsLower
+      if (keywords.isEmpty()) {
+        danmakuMessages
+      } else {
+        danmakuMessages.filterNot { message ->
+          val content = message.content.lowercase()
+          keywords.any(content::contains)
         }
-        danmakuMessages = (danmakuMessages + msg).takeLast(danmakuMax)
       }
-    } catch (t: Throwable) {
-      if (t is CancellationException) throw t
-      // Swallow network/parse errors to avoid crashing the player UI.
     }
   }
 
-  fun reloadUrl() {
-    val s = streamer ?: return
-    scope.launch {
-      loading = true
-      error = null
-      url = null
-      videoAspectRatio = null
-      videoReady = false
-      val result = when (s.platform) {
-        Platform.Douyu -> runCatching {
-          appState.repo.resolveDouyuStreamUrl(
-            roomId = s.roomId,
-            quality = selectedDouyuRate,
-            cdn = selectedDouyuCdn,
-          )
+  LaunchedEffect(streamer?.roomId, streamer?.platform, danmakuEnabled, appForeground, danmakuRetryNonce) {
+    val s = streamer ?: return@LaunchedEffect
+    if (!danmakuEnabled) return@LaunchedEffect
+    if (!appForeground || s.isLive == false) return@LaunchedEffect
+    danmakuSequence = 0L
+    try {
+      appState.repo.observeDanmaku(s.platform, s.roomId).collect { event ->
+        if (event.sequence < danmakuSequence) return@collect
+        danmakuSequence = event.sequence
+        danmakuEvent = event
+        event.message?.let { message ->
+          val displayMessage = message.copy(displayId = danmakuDisplayIds.next())
+          danmakuMessages = (danmakuMessages + displayMessage).takeLast(danmakuMax)
         }
-        Platform.Huya -> runCatching { appState.repo.resolveHuyaStreamUrl(roomId = s.roomId) }
-        Platform.Douyin -> runCatching { appState.repo.resolveDouyinStreamUrl(webRid = s.roomId, desiredQuality = selectedDouyinQuality) }
-        Platform.Bilibili -> runCatching { appState.repo.resolveBilibiliStreamUrl(roomId = s.roomId, qn = selectedBilibiliQn) }
-        else -> Result.failure(IllegalStateException("暂不支持的平台：${s.platform.title}"))
       }
-      result
-        .onSuccess { url = it }
-        .onFailure { error = it.message ?: "获取播放地址失败" }
-      loading = false
+    } catch (t: Throwable) {
+      if (t is CancellationException) throw t
     }
+  }
+
+  val playbackOptions = playbackState.options
+  val selectedQualityId = playbackState.selectedQualityId
+  val selectedLineId = playbackState.selectedLineId
+  val currentLine = PlaybackSelectionResolver.effectiveLine(playbackOptions, selectedLineId)
+  val currentQualities = currentLine?.qualities.orEmpty()
+  val url = playbackState.playback?.url
+  val error = playbackState.error
+  val loading = playbackState.isBusy
+
+  LaunchedEffect(url) {
+    videoAspectRatio = null
+    videoReady = false
   }
   BoxWithConstraints(
     modifier = Modifier
@@ -295,65 +260,33 @@ fun PlayerScreen(
       ) {
         Text("播放设置", style = MaterialTheme.typography.titleMedium)
 
-        if (s.platform == Platform.Douyu || s.platform == Platform.Douyin || s.platform == Platform.Bilibili) {
-          Text("画质", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f))
-          when (s.platform) {
-            Platform.Douyu -> {
-              RowWrap(
-                items = listOf("自动" to null) + (playInfo?.variants.orEmpty().map { it.name to it.rate.toString() }),
-                selected = selectedDouyuRate,
-                onSelect = {
-                  selectedDouyuRate = it
-                  reloadUrl()
-                },
-              )
-            }
-            Platform.Douyin -> {
-              RowWrap(
-                items = listOf(
-                  "自动" to null,
-                  "原画" to "ORIGIN",
-                  "超清" to "FULL_HD1",
-                  "高清" to "HD1",
-                  "标清" to "SD1",
-                ),
-                selected = selectedDouyinQuality,
-                onSelect = {
-                  selectedDouyinQuality = it
-                  reloadUrl()
-                },
-              )
-            }
-            Platform.Bilibili -> {
-              RowWrapInt(
-                items = listOf(
-                  "自动" to null,
-                  "原画" to 10000,
-                  "蓝光" to 400,
-                  "超清" to 250,
-                  "高清" to 150,
-                  "流畅" to 80,
-                ),
-                selected = selectedBilibiliQn,
-                onSelect = {
-                  selectedBilibiliQn = it
-                  reloadUrl()
-                },
-              )
-            }
-            else -> Unit
-          }
-        }
+        Text("画质 · 当前线路", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f))
+        RowWrap(
+          items = listOf("自动" to null) + currentQualities.map { it.label to it.id },
+          selected = selectedQualityId,
+          onSelect = playbackController::selectQuality,
+          enabled = !playbackState.isBusy,
+        )
 
-        if (s.platform == Platform.Douyu) {
-          Text("线路", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f))
-          RowWrap(
-            items = listOf("自动" to null) + (playInfo?.cdns.orEmpty().map { it to it }),
-            selected = selectedDouyuCdn,
-            onSelect = {
-              selectedDouyuCdn = it
-              reloadUrl()
-            },
+        Text("线路", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f))
+        RowWrap(
+          items = listOf("自动" to null) + playbackOptions.lines.map { it.label to it.id },
+          selected = selectedLineId,
+          onSelect = playbackController::selectLine,
+          enabled = !playbackState.isBusy,
+        )
+        if (playbackState.isBusy) {
+          Text(
+            text = if (playbackState.phase == PlaybackSessionPhase.Switching) "正在切换播放线路…" else "正在加载播放信息…",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.62f),
+          )
+        }
+        if (playbackState.error != null) {
+          Text(
+            text = playbackState.error.orEmpty(),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.error,
           )
         }
 
@@ -363,6 +296,19 @@ fun PlayerScreen(
           selected = if (danmakuEnabled) "on" else "off",
           onSelect = { danmakuEnabled = it == "on" },
         )
+        Text(
+          text = danmakuStatusText(danmakuEvent, filteredDanmakuMessages.isNotEmpty()),
+          style = MaterialTheme.typography.bodySmall,
+          color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f),
+        )
+        if (danmakuEvent?.phase == DanmakuPhase.Degraded ||
+          danmakuEvent?.phase == DanmakuPhase.Reconnecting ||
+          danmakuEvent?.failure != null
+        ) {
+          TextButton(onClick = { danmakuRetryNonce += 1 }) {
+            Text("立即重试")
+          }
+        }
 
         Text("弹幕字体大小", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f))
         RowWrapFloat(
@@ -422,7 +368,7 @@ fun PlayerScreen(
     val effectiveAspect = videoAspectRatio?.takeIf { it > 0f }
     val isVideoAspectKnown = effectiveAspect != null
     val layoutAspect = effectiveAspect ?: (16f / 9f)
-    val isVerticalVideo = isVideoAspectKnown && (effectiveAspect!! < 1f)
+    val isVerticalVideo = isVideoAspectKnown && effectiveAspect < 1f
     val isHorizontalVideo = isVideoAspectKnown && !isVerticalVideo
     val verticalFullBleed = !fullscreen && isVerticalVideo
     val showFullPageLoading = !fullscreen &&
@@ -485,12 +431,13 @@ fun PlayerScreen(
         }
 
         val canShowDanmaku = danmakuEnabled &&
-          danmakuMessages.isNotEmpty() &&
+          filteredDanmakuMessages.isNotEmpty() &&
           isVideoAspectKnown &&
           videoReady &&
-          url != null &&
-          !loading &&
-          error == null
+          url != null
+        val canShowDanmakuPanel = danmakuEnabled &&
+          danmakuEvent != null &&
+          streamer?.isLive != false
 
         Surface(
           shape = videoSurfaceShape,
@@ -498,9 +445,10 @@ fun PlayerScreen(
           modifier = videoSurfaceModifier,
         ) {
           Box(modifier = Modifier.fillMaxSize()) {
-            if (url != null) {
+            val currentUrl = url
+            if (currentUrl != null) {
               StreamPlayer(
-                url = url!!,
+                url = currentUrl,
                 fullscreen = fullscreen,
                 liveMode = true,
                 zoomToFill = verticalFullBleed,
@@ -510,15 +458,19 @@ fun PlayerScreen(
                 },
                 onError = {
                   if (it.startsWith("__retry_http__:")) {
-                    error = null
-                    url = it.removePrefix("__retry_http__:")
+                    playbackController.replacePlaybackUrl(it.removePrefix("__retry_http__:"))
                   } else {
-                    error = it
-                    url = null
+                    playbackController.reportPlayerFailure(it)
                   }
                 },
                 modifier = Modifier.fillMaxSize(),
               )
+              if (fullscreen) {
+                PlayerSystemGestureLayer(
+                  enabled = !showSettings && !playbackState.isBusy && playbackState.playback != null,
+                  modifier = Modifier.fillMaxSize(),
+                )
+              }
             } else {
               Box(
                 modifier = Modifier
@@ -566,12 +518,57 @@ fun PlayerScreen(
                   )
                 }
                 error != null -> {
+                  val currentError = error
                   Text(
-                    text = error!!,
+                    text = currentError.orEmpty(),
                     style = MaterialTheme.typography.bodyMedium,
                     color = if (fullscreen) Color.White.copy(alpha = 0.9f) else MaterialTheme.colorScheme.onSecondary.copy(alpha = 0.85f),
                   )
                 }
+              }
+            }
+
+            if (playbackState.phase == PlaybackSessionPhase.Switching && playbackState.playback != null) {
+              Surface(
+                shape = RoundedCornerShape(14.dp),
+                color = Color.Black.copy(alpha = 0.62f),
+                modifier = Modifier
+                  .align(Alignment.TopCenter)
+                  .padding(top = 16.dp),
+              ) {
+                Row(
+                  modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                  verticalAlignment = Alignment.CenterVertically,
+                  horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                  CircularProgressIndicator(
+                    modifier = Modifier.size(16.dp),
+                    strokeWidth = 2.dp,
+                    color = Color.White,
+                  )
+                  Text(
+                    text = "正在切换线路…",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color.White.copy(alpha = 0.9f),
+                  )
+                }
+              }
+            }
+
+            if (playbackState.phase == PlaybackSessionPhase.Failed && playbackState.playback != null) {
+              Surface(
+                shape = RoundedCornerShape(14.dp),
+                color = Color.Black.copy(alpha = 0.72f),
+                modifier = Modifier
+                  .align(Alignment.BottomCenter)
+                  .padding(16.dp),
+              ) {
+                Text(
+                  text = playbackState.error ?: "切换播放失败，已保留当前播放",
+                  style = MaterialTheme.typography.bodySmall,
+                  color = Color.White.copy(alpha = 0.9f),
+                  modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                )
               }
             }
           }
@@ -594,7 +591,7 @@ fun PlayerScreen(
               if (fullscreen && isHorizontalVideo) {
                 ScrollingDanmakuOverlay(
                   resetKey = streamer?.roomId,
-                  messages = danmakuMessages,
+                  messages = filteredDanmakuMessages,
                   showUser = false,
                   areaFraction = appState.danmakuAreaFraction,
                   textScale = appState.landscapeDanmakuFontScale * appState.danmakuFontScale,
@@ -605,7 +602,7 @@ fun PlayerScreen(
                 )
               } else {
                 DanmakuOverlay(
-                  messages = danmakuMessages,
+                  messages = filteredDanmakuMessages,
                   showUser = true,
                   areaFraction = appState.danmakuAreaFraction,
                   transparentBackground = false,
@@ -618,9 +615,39 @@ fun PlayerScreen(
               }
             }
 
+            val danmakuNeedsAttention = danmakuEnabled &&
+              (fullscreen || isVerticalVideo) &&
+              (danmakuEvent?.phase == DanmakuPhase.Degraded ||
+                (danmakuEvent?.phase == DanmakuPhase.Reconnecting && danmakuEvent?.failure != null))
+            if (danmakuNeedsAttention) {
+              Surface(
+                shape = RoundedCornerShape(14.dp),
+                color = Color.Black.copy(alpha = 0.72f),
+                modifier = Modifier
+                  .align(Alignment.BottomStart)
+                  .padding(16.dp),
+              ) {
+                Row(
+                  modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                  verticalAlignment = Alignment.CenterVertically,
+                  horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                  Text(
+                    text = danmakuStatusText(danmakuEvent, filteredDanmakuMessages.isNotEmpty()),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color.White.copy(alpha = 0.9f),
+                  )
+                  TextButton(onClick = { danmakuRetryNonce += 1 }) {
+                    Text("重试", color = Color.White)
+                  }
+                }
+              }
+            }
+
             PlayerSideControlsOverlay(
               fullscreen = fullscreen,
               showFullscreen = isVideoAspectKnown && !isVerticalVideo,
+              actionsEnabled = !playbackState.isBusy,
               onToggleFullscreen = {
                 if (fullscreen) {
                   fullscreen = false
@@ -631,7 +658,7 @@ fun PlayerScreen(
                 }
               },
               onOpenSettings = { showSettings = true },
-              onReload = { reloadUrl() },
+              onReload = playbackController::retry,
               modifier = Modifier
                 .align(Alignment.CenterEnd)
                 .padding(end = 16.dp),
@@ -640,9 +667,10 @@ fun PlayerScreen(
         }
 
         if (!fullscreen && !verticalFullBleed) {
-          if (canShowDanmaku && isHorizontalVideo) {
+          if (canShowDanmakuPanel && isHorizontalVideo) {
             HubDanmakuPanel(
-              messages = danmakuMessages,
+              messages = filteredDanmakuMessages,
+              statusText = danmakuStatusText(danmakuEvent, filteredDanmakuMessages.isNotEmpty()),
               enhancedPortrait = isPortraitLayout,
               textScale = appState.danmakuFontScale,
               modifier = Modifier
@@ -945,9 +973,10 @@ private fun PlayerHeader(
 }
 
 @Composable
-private fun PlayerSideControlsOverlay(
+internal fun PlayerSideControlsOverlay(
   fullscreen: Boolean,
   showFullscreen: Boolean,
+  actionsEnabled: Boolean,
   onToggleFullscreen: () -> Unit,
   onOpenSettings: () -> Unit,
   onReload: () -> Unit,
@@ -958,10 +987,24 @@ private fun PlayerSideControlsOverlay(
     verticalArrangement = Arrangement.spacedBy(14.dp),
     horizontalAlignment = Alignment.CenterHorizontally,
   ) {
-    ControlFab(icon = Icons.Default.Settings, onClick = onOpenSettings)
-    ControlFab(icon = Icons.Default.Refresh, onClick = onReload)
+    ControlFab(
+      icon = Icons.Default.Settings,
+      onClick = onOpenSettings,
+      tag = "player_settings",
+    )
+    ControlFab(
+      icon = Icons.Default.Refresh,
+      onClick = onReload,
+      enabled = actionsEnabled,
+      tag = "player_reload",
+    )
     if (showFullscreen) {
-      ControlFab(icon = Icons.Default.FullscreenExit.takeIf { fullscreen } ?: Icons.Default.Fullscreen, onClick = onToggleFullscreen)
+      ControlFab(
+        icon = Icons.Default.FullscreenExit.takeIf { fullscreen } ?: Icons.Default.Fullscreen,
+        onClick = onToggleFullscreen,
+        enabled = actionsEnabled,
+        tag = "player_fullscreen",
+      )
     }
   }
 }
@@ -970,12 +1013,18 @@ private fun PlayerSideControlsOverlay(
 private fun ControlFab(
   icon: androidx.compose.ui.graphics.vector.ImageVector,
   onClick: () -> Unit,
+  enabled: Boolean = true,
+  tag: String? = null,
   modifier: Modifier = Modifier,
 ) {
   Surface(
-    modifier = modifier.size(38.dp).clip(CircleShape).clickable(onClick = onClick),
+    modifier = modifier
+      .size(38.dp)
+      .clip(CircleShape)
+      .then(if (tag == null) Modifier else Modifier.testTag(tag))
+      .clickable(enabled = enabled, onClick = onClick),
     shape = CircleShape,
-    color = Color.White.copy(alpha = 0.10f),
+    color = Color.White.copy(alpha = if (enabled) 0.10f else 0.05f),
     border = BorderStroke(1.dp, Color.White.copy(alpha = 0.12f)),
     tonalElevation = 0.dp,
     shadowElevation = 0.dp,
@@ -985,7 +1034,7 @@ private fun ControlFab(
         modifier = Modifier.size(25.dp),
         imageVector = icon,
         contentDescription = null,
-        tint = Color.White.copy(alpha = 0.92f),
+        tint = Color.White.copy(alpha = if (enabled) 0.92f else 0.35f),
       )
     }
   }
@@ -1163,6 +1212,7 @@ private fun DanmakuBubble(
 @Composable
 private fun HubDanmakuPanel(
   messages: List<DanmakuMessage>,
+  statusText: String,
   enhancedPortrait: Boolean = false,
   textScale: Float = 1f,
   modifier: Modifier = Modifier,
@@ -1171,31 +1221,93 @@ private fun HubDanmakuPanel(
   val itemSpacing = if (enhancedPortrait) 8.dp else 6.dp
 
   val display = remember(messages) { messages.asReversed() }
-  LaunchedEffect(display.size) {
+  LaunchedEffect(display.firstOrNull()?.displayId) {
     if (display.isNotEmpty()) listState.scrollToItem(index = 0)
   }
 
-  LazyColumn(
+  Column(
     modifier = modifier
       .fillMaxWidth()
       .fillMaxSize()
       .padding(horizontal = 10.dp, vertical = 6.dp),
-    state = listState,
-    reverseLayout = true,
-    contentPadding = PaddingValues(0.dp),
-    verticalArrangement = Arrangement.spacedBy(itemSpacing),
   ) {
-    itemsIndexed(
-      display,
-      key = { index, msg -> "${msg.roomId}:${msg.user}:${msg.content}:$index" },
-    ) { _, msg ->
-      HubDanmakuRow(
-        user = msg.user.trim().ifBlank { "匿名" },
-        content = msg.content.trim(),
-        enhancedPortrait = enhancedPortrait,
-        textScale = textScale,
-      )
+    Text(
+      text = statusText,
+      style = MaterialTheme.typography.bodySmall,
+      color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.62f),
+      modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
+    )
+    if (display.isEmpty()) {
+      Box(
+        modifier = Modifier
+          .fillMaxWidth()
+          .weight(1f),
+        contentAlignment = Alignment.Center,
+      ) {
+        Text(
+          text = "暂无新弹幕",
+          style = MaterialTheme.typography.bodyMedium,
+          color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
+        )
+      }
+    } else {
+      LazyColumn(
+        modifier = Modifier
+          .fillMaxWidth()
+          .weight(1f),
+        state = listState,
+        reverseLayout = true,
+        contentPadding = PaddingValues(0.dp),
+        verticalArrangement = Arrangement.spacedBy(itemSpacing),
+      ) {
+        itemsIndexed(
+          display,
+          key = { index, msg ->
+            if (msg.displayId > 0L) "message:${msg.displayId}"
+            else "${msg.roomId}:${msg.user}:${msg.content}:$index"
+          },
+        ) { _, msg ->
+          HubDanmakuRow(
+            user = msg.user.trim().ifBlank { "匿名" },
+            content = msg.content.trim(),
+            enhancedPortrait = enhancedPortrait,
+            textScale = textScale,
+          )
+        }
+      }
     }
+  }
+}
+
+private fun danmakuStatusText(
+  event: DanmakuEvent?,
+  hasMessages: Boolean,
+): String {
+  return when (event?.phase) {
+    null -> "弹幕尚未连接"
+    DanmakuPhase.Connecting -> "正在连接弹幕…"
+    DanmakuPhase.Authenticating -> "正在认证弹幕连接…"
+    DanmakuPhase.Ready -> if (hasMessages) "弹幕已连接" else "暂无新弹幕"
+    DanmakuPhase.Reconnecting -> {
+      val failure = event.failure?.let { "：${danmakuFailureText(it)}" }.orEmpty()
+      "弹幕重连中$failure"
+    }
+    DanmakuPhase.Degraded -> {
+      val failure = event.failure?.let { "：${danmakuFailureText(it)}" }.orEmpty()
+      "弹幕连接异常，正在自动重试$failure"
+    }
+  }
+}
+
+private fun danmakuFailureText(failure: DanmakuFailure): String {
+  return when (failure) {
+    DanmakuFailure.Network -> "网络异常"
+    DanmakuFailure.Http -> "服务异常"
+    DanmakuFailure.Authentication -> "认证失败"
+    DanmakuFailure.Protocol -> "连接超时"
+    DanmakuFailure.RoomUnavailable -> "直播间不可用"
+    DanmakuFailure.RateLimited -> "请求过于频繁"
+    DanmakuFailure.Unknown -> "未知错误"
   }
 }
 
@@ -1278,7 +1390,7 @@ private fun ScrollingDanmakuOverlay(
     val track: Int,
   )
 
-  var lastCount by remember(resetKey) { mutableIntStateOf(0) }
+  var lastDisplayId by remember(resetKey) { mutableStateOf(0L) }
   val maxActive = 48
 
   BoxWithConstraints(modifier = modifier) {
@@ -1313,7 +1425,7 @@ private fun ScrollingDanmakuOverlay(
         when {
           ch.code <= 0x007F -> 1
           else -> 2
-        }.toInt()
+        }
       }
       return weightedChars * fontSizePx * textScale.coerceAtLeast(0.85f) * 0.56f + hPadPx * 2f
     }
@@ -1331,12 +1443,9 @@ private fun ScrollingDanmakuOverlay(
       return bestReadyTrack.takeIf { bestReadyAt <= now + 120L }
     }
 
-    LaunchedEffect(messages.size, trackCount, widthPx, textScale) {
-      if (messages.size <= lastCount) {
-        lastCount = messages.size
-        return@LaunchedEffect
-      }
-      val newItems = messages.subList(lastCount, messages.size)
+    LaunchedEffect(messages, trackCount, widthPx, textScale) {
+      val newItems = messages.messagesAfterDisplayId(lastDisplayId)
+      if (newItems.isEmpty()) return@LaunchedEffect
       newItems.forEach { msg ->
         val user = msg.user.trim().ifBlank { "匿名" }
         val content = msg.content.trim()
@@ -1347,7 +1456,7 @@ private fun ScrollingDanmakuOverlay(
             if (active.size >= maxActive) active.removeAt(0)
             active.add(
               Active(
-                id = System.nanoTime(),
+                id = msg.displayId,
                 user = user,
                 content = content,
                 track = track,
@@ -1360,7 +1469,7 @@ private fun ScrollingDanmakuOverlay(
           }
         }
       }
-      lastCount = messages.size
+      lastDisplayId = newItems.last().displayId
     }
 
     active.forEach { item ->
@@ -1445,6 +1554,7 @@ private fun RowWrap(
   items: List<Pair<String, String?>>,
   selected: String?,
   onSelect: (String?) -> Unit,
+  enabled: Boolean = true,
 ) {
   LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
     items(items, key = { it.first }) { (label, value) ->
@@ -1452,24 +1562,7 @@ private fun RowWrap(
       FilterChip(
         selected = isSelected,
         onClick = { onSelect(value) },
-        label = { Text(label) },
-      )
-    }
-  }
-}
-
-@Composable
-private fun RowWrapInt(
-  items: List<Pair<String, Int?>>,
-  selected: Int?,
-  onSelect: (Int?) -> Unit,
-) {
-  LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-    items(items, key = { it.first }) { (label, value) ->
-      val isSelected = value == selected || (value == null && selected == null)
-      FilterChip(
-        selected = isSelected,
-        onClick = { onSelect(value) },
+        enabled = enabled,
         label = { Text(label) },
       )
     }

@@ -32,6 +32,7 @@ import dtv.mobile.state.AppState
 import dtv.mobile.ui.components.BilibiliWebLoginSheet
 import dtv.mobile.ui.components.StreamerCard
 import dtv.mobile.ui.components.StreamerCardStyle
+import dtv.mobile.util.runSuspendCatching
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -71,7 +72,7 @@ fun SearchScreen(
 
     loading = true
     delay(220)
-    runCatching { appState.repo.searchAnchors(platform = platform, keyword = trimmed) }
+    runSuspendCatching { appState.repo.searchAnchors(platform = platform, keyword = trimmed) }
       .onSuccess { results = it }
       .onFailure {
         results = emptyList()

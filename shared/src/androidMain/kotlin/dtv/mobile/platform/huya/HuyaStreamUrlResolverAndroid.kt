@@ -1,6 +1,8 @@
 package dtv.mobile.platform.huya
 
-import dtv.mobile.util.AppLog
+import dtv.mobile.repo.PlaybackLine
+import dtv.mobile.repo.PlaybackOptions
+import dtv.mobile.repo.ResolvedPlayback
 import io.ktor.client.HttpClient
 import io.ktor.client.request.get
 import io.ktor.client.request.headers
@@ -20,6 +22,12 @@ import kotlin.random.Random
 class HuyaStreamUrlResolverAndroid(
   private val client: HttpClient,
 ) {
+  private data class HuyaCandidate(
+    val id: String,
+    val label: String,
+    val url: String,
+  )
+
   companion object {
     private const val IOS_MOBILE_UA =
       "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1"
@@ -162,13 +170,13 @@ class HuyaStreamUrlResolverAndroid(
   }
 
   private fun adjustTxStreamUrl(url: String, cdn: String): String {
-    if (!cdn.equals("tx", ignoreCase = true)) return enforceHttp(url)
+    if (!cdn.startsWith("tx", ignoreCase = true)) return enforceHttp(url)
     val replacedCtype = url.replace("&ctype=tars_mp", "&ctype=huya_webh5")
     val replacedFs = replacedCtype.replace("&fs=bhct", "&fs=bgct")
     return enforceHttp(replacedFs)
   }
 
-  suspend fun resolve(roomId: String): String {
+  private suspend fun fetchCandidates(roomId: String): List<HuyaCandidate> {
     suspend fun fetchHtml(useMobileHeaders: Boolean): String {
       val url = "https://www.huya.com/$roomId"
       return client.get(url) {
@@ -188,7 +196,7 @@ class HuyaStreamUrlResolverAndroid(
       }.bodyAsText()
     }
 
-    fun parseCandidates(html: String): List<Pair<String, String>> {
+    fun parseCandidates(html: String): List<HuyaCandidate> {
       val re = Regex("(?s)stream:\\s*(\\{\"data\".*?),\"iWebDefaultBitRate\"")
       val match = re.find(html) ?: return emptyList()
       val jsonStr = match.groupValues[1] + "}"
@@ -207,7 +215,11 @@ class HuyaStreamUrlResolverAndroid(
         if (flvUrl.isBlank() || streamName.isBlank() || suffix.isBlank() || anti.isBlank()) return@mapNotNull null
         val antiParams = generateWebAntiCode(streamName, anti)
         val base = enforceHttp("${flvUrl.trimEnd('/')}/$streamName.$suffix?$antiParams")
-        cdn to base
+        HuyaCandidate(
+          id = cdn,
+          label = friendlyLineLabel(cdn),
+          url = base,
+        )
       }
     }
 
@@ -220,28 +232,58 @@ class HuyaStreamUrlResolverAndroid(
       parseCandidates(htmlMobile)
     }
 
-    AppLog.i(
-      "DTV-Huya",
-      "stream candidates roomId=$roomId: " + candidates.joinToString { (cdn, u) -> "$cdn=${u.take(64)}" },
-    )
+    return candidates
+  }
 
-    val selected = candidates
-      .sortedBy { (cdn, _) ->
-        when (cdn.lowercase()) {
-          // Android 上部分 CDN 可能 302 到带 '_' 的域名，导致 TLS/SNI 崩溃，优先避开 tx
-          "al" -> 0
-          "hs" -> 1
-          "tx" -> 2
-          else -> 3
-        }
-      }
-      .firstOrNull()
+  suspend fun fetchOptions(roomId: String): PlaybackOptions {
+    val candidates = fetchCandidates(roomId)
+    val lines = candidates.map { PlaybackLine(id = it.id, label = it.label) }.distinctBy { it.id }
+    return PlaybackOptions(
+      lines = lines,
+      defaultLineId = bestCandidate(candidates)?.id,
+    )
+  }
+
+  suspend fun resolveSelected(roomId: String, lineId: String?): ResolvedPlayback {
+    val candidates = fetchCandidates(roomId)
+
+    val selected = if (lineId == null) {
+      bestCandidate(candidates)
+    } else {
+      candidates.firstOrNull { it.id.equals(lineId, ignoreCase = true) }
+    }
       ?: error("虎牙未找到可用播放地址")
 
-    val adjusted = adjustTxStreamUrl(selected.second, selected.first)
+    val adjusted = adjustTxStreamUrl(selected.url, selected.id)
     // Workaround: prefer http to avoid TLS/SNI host validation issues on some CDN redirects.
     val finalUrl = enforceHttp(adjusted)
-    AppLog.i("DTV-Huya", "selected stream roomId=$roomId cdn=${selected.first} url=${finalUrl.take(96)}")
-    return finalUrl
+    return ResolvedPlayback(
+      url = finalUrl,
+      lineId = selected.id,
+    )
+  }
+
+  suspend fun resolve(roomId: String): String = resolveSelected(roomId, null).url
+
+  private fun bestCandidate(candidates: List<HuyaCandidate>): HuyaCandidate? {
+    return candidates.minByOrNull {
+      when (it.id.lowercase()) {
+        // Android 上部分 CDN 可能 302 到带 '_' 的域名，导致 TLS/SNI 崩溃，优先避开 tx
+        "al" -> 0
+        "hs" -> 1
+        "tx" -> 2
+        else -> 3
+      }
+    }
+  }
+
+  private fun friendlyLineLabel(cdn: String): String {
+    val upper = cdn.uppercase()
+    return when {
+      upper.startsWith("AL") -> "阿里 · $upper"
+      upper.startsWith("TX") -> "腾讯 · $upper"
+      upper.startsWith("HS") -> "虎牙 · $upper"
+      else -> "线路 · $upper"
+    }
   }
 }

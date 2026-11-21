@@ -1,5 +1,6 @@
 package dtv.mobile.platform.douyin
 
+import android.content.Context
 import io.ktor.client.HttpClient
 import io.ktor.client.request.get
 import io.ktor.client.request.headers
@@ -8,18 +9,15 @@ import io.ktor.http.encodeURLQueryComponent
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.booleanOrNull
-import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import kotlinx.serialization.json.intOrNull
 
 class DouyinWebApiAndroid(
   private val client: HttpClient,
+  appContext: Context,
 ) {
   companion object {
     // Use the tested cookie from the desktop project to improve API success.
@@ -33,19 +31,39 @@ class DouyinWebApiAndroid(
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
   }
 
-  data class PartitionResult(
-    val rooms: List<DouyinRoom>,
-    val hasMore: Boolean,
+  private val cookieManager = DouyinCookieManager(
+    persistence = object : DouyinCookiePersistence {
+      private val prefs = appContext.getSharedPreferences("dtv_douyin", Context.MODE_PRIVATE)
+
+      override fun read(): String? = prefs.getString("cookie", null)
+
+      override fun readFetchedAt(): Long = prefs.getLong("fetched_at", 0L)
+
+      override fun write(cookie: String, fetchedAtMs: Long) {
+        prefs.edit()
+          .putString("cookie", cookie)
+          .putLong("fetched_at", fetchedAtMs)
+          .apply()
+      }
+    },
+    fallbackCookie = DEFAULT_COOKIE,
+    fetcher = {
+      DouyinWebViewCookieAndroid(appContext).fetch(
+        url = "https://live.douyin.com/",
+        userAgent = DEFAULT_USER_AGENT,
+      )
+    },
   )
 
-  data class DouyinRoom(
-    val webRid: String,
-    val title: String,
-    val ownerNickname: String,
-    val coverUrl: String?,
-    val avatarUrl: String?,
-    val userCountStr: String,
-  )
+  suspend fun cookieHeader(forceRefresh: Boolean = false): String =
+    cookieManager.getCookie(forceRefresh)
+
+  fun updateCookieFromSetCookie(setCookie: String?) {
+    cookieManager.updateFromSetCookie(setCookie)
+  }
+
+  typealias PartitionResult = DouyinPartitionResult
+  typealias DouyinRoom = DouyinPartitionRoom
 
   data class EnterRoomResult(
     val title: String?,
@@ -87,14 +105,6 @@ class DouyinWebApiAndroid(
     return cur as? JsonObject
   }
 
-  private fun JsonObject.arr(path: List<String>): JsonArray? {
-    var cur: JsonElement = this
-    for (p in path) {
-      cur = (cur as? JsonObject)?.get(p) ?: return null
-    }
-    return cur as? JsonArray
-  }
-
   suspend fun fetchPartitionRooms(
     partition: String,
     partitionType: String,
@@ -127,48 +137,17 @@ class DouyinWebApiAndroid(
     val sign = withContext(Dispatchers.Default) { generateABogus(query, DEFAULT_USER_AGENT) }
     val url = "https://live.douyin.com/webcast/web/partition/detail/room/v2/?$query&a_bogus=${sign.encodeURLQueryComponent()}"
 
-    val text = client.get(url) {
-      headers {
-        append("User-Agent", DEFAULT_USER_AGENT)
-        append("Cookie", DEFAULT_COOKIE)
-      }
-    }.bodyAsText()
-
-    val root = json.parseToJsonElement(text).jsonObject
-    val status = root["status_code"]?.jsonPrimitive?.intOrNull ?: -1
-    if (status != 0) {
-      val msg = root.obj(listOf("data"))?.string(listOf("message"))
-      throw IllegalStateException(msg ?: "抖音分区列表接口错误: status_code=$status")
+    val firstCookie = cookieHeader()
+    val first = fetchPartitionResponse(url, firstCookie)
+    updateCookieFromSetCookie(first.setCookie)
+    if (!DouyinResponseParser.isRetryableFailure(first.status, first.text)) {
+      return DouyinResponseParser.parsePartitionResponse(first.text, limit)
     }
 
-    val wrapper = root["data"]?.jsonObject ?: return PartitionResult(emptyList(), hasMore = false)
-    val dataArr = wrapper["data"]?.jsonArray ?: return PartitionResult(emptyList(), hasMore = false)
-    val rooms = dataArr.mapNotNull { entry ->
-      val obj = entry as? JsonObject ?: return@mapNotNull null
-      val webRid = obj["web_rid"].stringValueOrNull()?.trim().orEmpty()
-      val room = (obj["room"] as? JsonObject) ?: return@mapNotNull null
-      val title = room["title"].stringValueOrNull()?.trim().orEmpty()
-      val owner = room.obj(listOf("owner"))
-      val ownerNickname = owner?.string(listOf("nickname"))?.trim().orEmpty()
-      val coverUrl = room.arr(listOf("cover", "url_list"))?.firstOrNull().stringValueOrNull()
-      val avatarUrl = owner?.arr(listOf("avatar_thumb", "url_list"))?.firstOrNull().stringValueOrNull()
-      val stats = room.obj(listOf("stats"))
-      val userCountStr = (stats?.string(listOf("user_count_str")) ?: stats?.string(listOf("total_user_str"))).orEmpty()
-
-      if (webRid.isBlank()) return@mapNotNull null
-      DouyinRoom(
-        webRid = webRid,
-        title = title.ifBlank { "直播中" },
-        ownerNickname = ownerNickname.ifBlank { "抖音主播" },
-        coverUrl = coverUrl,
-        avatarUrl = avatarUrl,
-        userCountStr = userCountStr.ifBlank { "直播中" },
-      )
-    }
-
-    val apiHasMore = wrapper["has_more"]?.jsonPrimitive?.booleanOrNull
-    val hasMore = apiHasMore ?: (rooms.size == limit)
-    return PartitionResult(rooms = rooms, hasMore = hasMore)
+    val retryCookie = cookieHeader(forceRefresh = true)
+    val second = fetchPartitionResponse(url, retryCookie)
+    updateCookieFromSetCookie(second.setCookie)
+    return DouyinResponseParser.parsePartitionResponse(second.text, limit)
   }
 
   suspend fun fetchRoomEnter(webRid: String): EnterRoomResult {
@@ -189,43 +168,66 @@ class DouyinWebApiAndroid(
     val sign = withContext(Dispatchers.Default) { generateABogus(query, DEFAULT_USER_AGENT) }
     val url = "https://live.douyin.com/webcast/room/web/enter/?$query&a_bogus=${sign.encodeURLQueryComponent()}"
 
+    suspend fun request(cookie: String): HttpText {
+      val response = client.get(url) {
+        headers {
+          append("User-Agent", DEFAULT_USER_AGENT)
+          append("Referer", "https://live.douyin.com/$webRid")
+          append("Accept-Encoding", "identity")
+          append("Cookie", cookie)
+        }
+      }
+      return HttpText(
+        status = response.status.value,
+        text = response.bodyAsText(),
+        msToken = response.headers["x-ms-token"]?.trim()?.takeIf { it.isNotBlank() },
+        setCookie = response.headers["Set-Cookie"],
+      )
+    }
+
+    val first = request(cookieHeader())
+    var response = first
+    updateCookieFromSetCookie(first.setCookie)
+    var parsed = runCatching { DouyinResponseParser.parseRoomEnterResponse(response.text) }.getOrNull()
+    if (DouyinResponseParser.isRetryableFailure(response.status, response.text, parsed)) {
+      response = request(cookieHeader(forceRefresh = true))
+      updateCookieFromSetCookie(response.setCookie)
+      parsed = DouyinResponseParser.parseRoomEnterResponse(response.text)
+    }
+    val parsedRoom = parsed ?: DouyinResponseParser.parseRoomEnterResponse(response.text)
+
+    return EnterRoomResult(
+      title = parsedRoom.title,
+      anchorName = parsedRoom.anchorName,
+      avatarUrl = parsedRoom.avatarUrl,
+      coverUrl = parsedRoom.coverUrl,
+      viewerCountStr = parsedRoom.viewerCountStr,
+      roomId = parsedRoom.roomId,
+      msToken = response.msToken,
+      hlsPullUrlMap = parsedRoom.streamUrls.hlsPullUrlMap,
+      flvPullUrlMap = parsedRoom.streamUrls.flvPullUrlMap,
+    )
+  }
+
+  private suspend fun fetchPartitionResponse(url: String, cookie: String): HttpText {
     val response = client.get(url) {
       headers {
         append("User-Agent", DEFAULT_USER_AGENT)
-        append("Referer", "https://live.douyin.com/$webRid")
-        append("Accept-Encoding", "identity")
-        append("Cookie", DEFAULT_COOKIE)
+        append("Cookie", cookie)
       }
     }
-    val text = response.bodyAsText()
-    val msToken = response.headers["x-ms-token"]?.trim()?.takeIf { it.isNotBlank() }
-
-    val root = json.parseToJsonElement(text).jsonObject
-    val room = root.arr(listOf("data", "data"))?.firstOrNull()?.jsonObject
-    val user = root.obj(listOf("data", "user"))
-    val anchorName = user?.string(listOf("nickname"))
-    val avatarUrl = user?.obj(listOf("avatar_thumb"))?.arr(listOf("url_list"))?.firstOrNull().stringValueOrNull()
-    val title = room?.string(listOf("title"))
-    val coverUrl = room?.obj(listOf("cover"))?.arr(listOf("url_list"))?.firstOrNull().stringValueOrNull()
-    val stats = room?.obj(listOf("stats"))
-    val viewerCountStr = (stats?.string(listOf("user_count_str")) ?: stats?.string(listOf("total_user_str")))
-    val roomId = room?.get("id_str").stringValueOrNull()
-      ?: room?.get("id").stringValueOrNull()
-
-    val streamUrl = room?.obj(listOf("stream_url"))
-    val hlsMap = streamUrl?.obj(listOf("hls_pull_url_map"))?.mapValues { it.value.stringValueOrNull().orEmpty() }.orEmpty()
-    val flvMap = streamUrl?.obj(listOf("flv_pull_url"))?.mapValues { it.value.stringValueOrNull().orEmpty() }.orEmpty()
-
-    return EnterRoomResult(
-      title = title,
-      anchorName = anchorName,
-      avatarUrl = avatarUrl,
-      coverUrl = coverUrl,
-      viewerCountStr = viewerCountStr,
-      roomId = roomId,
-      msToken = msToken,
-      hlsPullUrlMap = hlsMap.filterValues { it.isNotBlank() },
-      flvPullUrlMap = flvMap.filterValues { it.isNotBlank() },
+    return HttpText(
+      status = response.status.value,
+      text = response.bodyAsText(),
+      msToken = response.headers["x-ms-token"]?.trim()?.takeIf { it.isNotBlank() },
+      setCookie = response.headers["Set-Cookie"],
     )
   }
+
+  private data class HttpText(
+    val status: Int,
+    val text: String,
+    val msToken: String? = null,
+    val setCookie: String? = null,
+  )
 }

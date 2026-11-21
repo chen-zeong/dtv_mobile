@@ -1,17 +1,15 @@
 package dtv.mobile.platform.bilibili
 
-import dtv.mobile.model.Platform
 import dtv.mobile.model.Streamer
-import dtv.mobile.util.normalizeHttpUrl
 import io.ktor.client.HttpClient
 import io.ktor.client.request.get
 import io.ktor.client.request.headers
 import io.ktor.client.request.parameter
 import io.ktor.client.statement.bodyAsText
+import dtv.mobile.util.runSuspendCatching
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
-import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
@@ -21,7 +19,6 @@ class BilibiliSearchApiAndroid(
   private val cookieStore: BilibiliCookieStoreAndroid,
 ) {
   private val json = Json { ignoreUnknownKeys = true; isLenient = true }
-  private val emTagPattern = Regex("(?i)</?em[^>]*>")
 
   private fun JsonElement?.stringValueOrNull(): String? {
     val p = this as? kotlinx.serialization.json.JsonPrimitive ?: return null
@@ -32,17 +29,6 @@ class BilibiliSearchApiAndroid(
   private fun JsonElement?.longValueOrNull(): Long? {
     val p = this as? kotlinx.serialization.json.JsonPrimitive ?: return null
     return p.longOrNull ?: p.content.toLongOrNull()
-  }
-
-  private fun stripEmTags(input: String): String {
-    return input.replace(emTagPattern, "")
-  }
-
-  private fun normalizeImage(raw: String?): String? {
-    val trimmed = raw?.trim().orEmpty()
-    if (trimmed.isEmpty()) return null
-    val full = if (trimmed.startsWith("http")) trimmed else "https:$trimmed"
-    return if (full.contains('@')) full else "$full@400w.jpg"
   }
 
   private fun parseCookiePairs(cookie: String): MutableList<Pair<String, String>> {
@@ -101,10 +87,10 @@ class BilibiliSearchApiAndroid(
     if (trimmed.isEmpty()) return emptyList()
 
     val initialCookie = cookieStore.getCookie().orEmpty()
-    val cookieHeader = runCatching { ensureBuvid(initialCookie) }.getOrElse { initialCookie }
+    val cookieHeader = runSuspendCatching { ensureBuvid(initialCookie) }.getOrElse { initialCookie }
     if (cookieHeader.isNotBlank()) cookieStore.mergeFromCookieHeader(cookieHeader)
 
-    val text = client.get("https://api.bilibili.com/x/web-interface/search/type") {
+    suspend fun request(): String = client.get("https://api.bilibili.com/x/web-interface/search/type") {
       parameter("context", "")
       parameter("search_type", "live")
       parameter("cover_type", "user_cover")
@@ -123,45 +109,9 @@ class BilibiliSearchApiAndroid(
       }
     }.bodyAsText()
 
-    val root = runCatching { json.parseToJsonElement(text).jsonObject }.getOrNull() ?: return emptyList()
-    val code = root["code"].longValueOrNull() ?: -1L
-    if (code != 0L) return emptyList()
-
-    val liveUsers = root["data"]?.jsonObject
-      ?.get("result")?.jsonObject
-      ?.get("live_user")?.jsonArray
-      ?: return emptyList()
-
-    return liveUsers.mapNotNull { el ->
-      val obj = el.jsonObject
-      val roomId = obj["roomid"].longValueOrNull()?.toString().orEmpty()
-      if (roomId.isBlank()) return@mapNotNull null
-
-      val title = stripEmTags(obj["title"].stringValueOrNull().orEmpty()).trim().ifBlank { "暂无标题" }
-      val name = stripEmTags(obj["uname"].stringValueOrNull().orEmpty()).trim().ifBlank { "B站主播" }
-      val cover = normalizeHttpUrl(normalizeImage(obj["cover"].stringValueOrNull()))
-      val avatar = normalizeHttpUrl(normalizeImage(obj["uface"].stringValueOrNull()))
-
-      val watching = obj["online"]?.let { online ->
-        when (online) {
-          is kotlinx.serialization.json.JsonPrimitive -> online.content
-          else -> ""
-        }
-      }.orEmpty()
-
-      val isLive = (obj["live_status"].longValueOrNull() ?: 0L) == 1L
-
-      Streamer(
-        platform = Platform.Bilibili,
-        roomId = roomId,
-        name = name,
-        title = title,
-        viewerText = watching,
-        avatarUrl = avatar,
-        coverUrl = cover,
-        isLive = isLive,
-      )
-    }
+    val first = request()
+    val text = if (BilibiliLiveListParser.isRiskControlResponse(first)) request() else first
+    return BilibiliSearchParser.parseResponse(text)
   }
 }
 

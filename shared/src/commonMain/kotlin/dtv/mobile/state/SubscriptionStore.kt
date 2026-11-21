@@ -10,6 +10,14 @@ data class SimpleModeEntry(
   val enabled: Boolean,
 )
 
+@Serializable
+data class PlaybackPreference(
+  val platform: Platform,
+  val roomId: String? = null,
+  val qualityId: String? = null,
+  val lineId: String? = null,
+)
+
 interface SubscriptionStore {
   fun loadThemeMode(): ThemeMode
   fun saveThemeMode(value: ThemeMode)
@@ -40,6 +48,9 @@ interface SubscriptionStore {
 
   fun loadSimpleModeByPlatform(): List<SimpleModeEntry>
   fun saveSimpleModeByPlatform(items: List<SimpleModeEntry>)
+
+  fun loadPlaybackPreferences(): List<PlaybackPreference>
+  fun savePlaybackPreferences(items: List<PlaybackPreference>)
 }
 
 object InMemorySubscriptionStore : SubscriptionStore {
@@ -53,6 +64,7 @@ object InMemorySubscriptionStore : SubscriptionStore {
   private var partitions: List<SubscribedPartition> = emptyList()
   private var danmuBlockKeywords: List<String> = emptyList()
   private var simpleModes: List<SimpleModeEntry> = emptyList()
+  private var playbackPreferences: List<PlaybackPreference> = emptyList()
 
   override fun loadThemeMode(): ThemeMode = themeMode
 
@@ -112,5 +124,11 @@ object InMemorySubscriptionStore : SubscriptionStore {
 
   override fun saveSimpleModeByPlatform(items: List<SimpleModeEntry>) {
     simpleModes = items.toList()
+  }
+
+  override fun loadPlaybackPreferences(): List<PlaybackPreference> = playbackPreferences
+
+  override fun savePlaybackPreferences(items: List<PlaybackPreference>) {
+    playbackPreferences = items.toList()
   }
 }

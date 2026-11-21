@@ -1,10 +1,29 @@
 package dtv.mobile.platform.bilibili
 
 import android.content.Context
+import android.webkit.CookieManager
 
 class BilibiliCookieStoreAndroid(
   appContext: Context,
 ) {
+  private companion object {
+    val BILIBILI_COOKIE_URLS = listOf(
+      "https://www.bilibili.com",
+      "https://passport.bilibili.com",
+      "https://live.bilibili.com",
+      "https://api.bilibili.com",
+    )
+    val BILIBILI_COOKIE_NAMES = setOf(
+      "SESSDATA",
+      "bili_jct",
+      "DedeUserID",
+      "DedeUserID__ckMd5",
+      "sid",
+      "buvid3",
+      "buvid4",
+    )
+  }
+
   private val prefs = appContext.getSharedPreferences("dtv_bilibili", Context.MODE_PRIVATE)
 
   fun getCookie(): String? = prefs.getString("cookie", null)?.takeIf { it.isNotBlank() }
@@ -22,6 +41,31 @@ class BilibiliCookieStoreAndroid(
 
   fun clear() {
     prefs.edit().remove("cookie").apply()
+    clearWebViewCookies()
+  }
+
+  private fun clearWebViewCookies() {
+    val cookieManager = CookieManager.getInstance()
+    BILIBILI_COOKIE_URLS.forEach { url ->
+      val cookieNames = runCatching { cookieManager.getCookie(url) }
+        .getOrNull()
+        .orEmpty()
+        .split(';')
+        .mapNotNull { segment ->
+          segment.substringBefore('=', "").trim().takeIf { it.isNotEmpty() }
+        }
+        .toSet() + BILIBILI_COOKIE_NAMES
+      cookieNames.forEach { name ->
+        runCatching {
+          cookieManager.setCookie(url, "$name=; Max-Age=0; Path=/; Secure")
+          cookieManager.setCookie(
+            url,
+            "$name=; Max-Age=0; Path=/; Domain=.bilibili.com; Secure",
+          )
+        }
+      }
+    }
+    runCatching { cookieManager.flush() }
   }
 
   fun mergeFromSetCookieHeaders(setCookie: List<String>) {

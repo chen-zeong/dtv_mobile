@@ -8,6 +8,7 @@ import dtv.mobile.repo.DouyuCategories
 import dtv.mobile.repo.HuyaCate1
 import dtv.mobile.state.AppState
 import dtv.mobile.state.SubscribedPartition
+import dtv.mobile.util.runSuspendCatching
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.serializer
@@ -52,6 +53,23 @@ data class LanSyncImportResult(
 private val lanSyncJson = Json {
   ignoreUnknownKeys = true
   isLenient = true
+}
+
+private const val LAN_SYNC_MAX_PAYLOAD_CHARS = 5_000_000L
+
+internal fun validateLanSyncPayload(payload: LanSyncPayload) {
+  require(payload.kind == LAN_SYNC_KIND) {
+    "不支持的同步数据类型：${payload.kind}"
+  }
+  require(payload.version == LAN_SYNC_VERSION) {
+    "不支持的同步协议版本：${payload.version}"
+  }
+  val payloadChars = payload.entries.entries.sumOf { (key, value) ->
+    key.length.toLong() + value.length.toLong()
+  }
+  require(payloadChars <= LAN_SYNC_MAX_PAYLOAD_CHARS) {
+    "同步数据过大：$payloadChars 字符"
+  }
 }
 
 private fun platformFromDesktop(value: String): Platform? {
@@ -105,6 +123,7 @@ private fun extractIdFromKey(platform: String, key: String): String? {
 }
 
 suspend fun applyIncrementalLanSyncImport(appState: AppState, payload: LanSyncPayload): LanSyncImportResult {
+  validateLanSyncPayload(payload)
   val entries = payload.entries
 
   val followedFromKey = safeDecodeList(entries["followedStreamers"], ListSerializer(DesktopFollowedStreamer.serializer()))
@@ -241,7 +260,7 @@ private suspend fun mapDesktopCustomCategoriesToMobile(
           skipped += 1
           continue
         }
-        if (douyuCategories == null) douyuCategories = runCatching { appState.repo.fetchDouyuCategories() }.getOrNull()
+        if (douyuCategories == null) douyuCategories = runSuspendCatching { appState.repo.fetchDouyuCategories() }.getOrNull()
         val categories = douyuCategories
         if (categories == null) {
           skipped += 1
@@ -262,7 +281,7 @@ private suspend fun mapDesktopCustomCategoriesToMobile(
           skipped += 1
           continue
         }
-        if (huyaCategories == null) huyaCategories = runCatching { appState.repo.fetchHuyaCategories() }.getOrNull()
+        if (huyaCategories == null) huyaCategories = runSuspendCatching { appState.repo.fetchHuyaCategories() }.getOrNull()
         val categories = huyaCategories
         if (categories == null) {
           skipped += 1
@@ -282,7 +301,7 @@ private suspend fun mapDesktopCustomCategoriesToMobile(
           skipped += 1
           continue
         }
-        if (bilibiliCategories == null) bilibiliCategories = runCatching { appState.repo.fetchBilibiliCategories() }.getOrNull()
+        if (bilibiliCategories == null) bilibiliCategories = runSuspendCatching { appState.repo.fetchBilibiliCategories() }.getOrNull()
         val categories = bilibiliCategories
         if (categories == null) {
           skipped += 1
@@ -301,7 +320,7 @@ private suspend fun mapDesktopCustomCategoriesToMobile(
           skipped += 1
           continue
         }
-        if (douyinCategories == null) douyinCategories = runCatching { appState.repo.fetchDouyinCategories() }.getOrNull()
+        if (douyinCategories == null) douyinCategories = runSuspendCatching { appState.repo.fetchDouyinCategories() }.getOrNull()
         val categories = douyinCategories
         if (categories == null) {
           skipped += 1
@@ -398,7 +417,7 @@ private suspend fun exportMobilePartitionsAsDesktopCustomCategories(appState: Ap
       Platform.Douyu -> {
         val cate2Id = Regex("^douyu:c2:(.+)$").matchEntire(p.id)?.groupValues?.getOrNull(1)?.trim().orEmpty()
         if (cate2Id.isEmpty()) continue
-        if (douyuCategories == null) douyuCategories = runCatching { appState.repo.fetchDouyuCategories() }.getOrNull()
+        if (douyuCategories == null) douyuCategories = runSuspendCatching { appState.repo.fetchDouyuCategories() }.getOrNull()
         val categories = douyuCategories ?: continue
         val match = categories.cate1List.asSequence()
           .flatMap { it.cate2List.asSequence() }
@@ -418,7 +437,7 @@ private suspend fun exportMobilePartitionsAsDesktopCustomCategories(appState: Ap
       Platform.Huya -> {
         val gid = Regex("^huya:(.+)$").matchEntire(p.id)?.groupValues?.getOrNull(1)?.trim().orEmpty()
         if (gid.isEmpty()) continue
-        if (huyaCategories == null) huyaCategories = runCatching { appState.repo.fetchHuyaCategories() }.getOrNull()
+        if (huyaCategories == null) huyaCategories = runSuspendCatching { appState.repo.fetchHuyaCategories() }.getOrNull()
         val categories = huyaCategories ?: continue
         val match = categories.asSequence().flatMap { it.cate2List.asSequence() }.firstOrNull { it.gid == gid } ?: continue
         val href = match.href ?: continue
@@ -438,7 +457,7 @@ private suspend fun exportMobilePartitionsAsDesktopCustomCategories(appState: Ap
         val m = Regex("^bilibili:(\\d+):(\\d+)$").matchEntire(p.id) ?: continue
         val parentAreaId = m.groupValues[1].toIntOrNull() ?: continue
         val areaId = m.groupValues[2].toIntOrNull() ?: continue
-        if (bilibiliCategories == null) bilibiliCategories = runCatching { appState.repo.fetchBilibiliCategories() }.getOrNull()
+        if (bilibiliCategories == null) bilibiliCategories = runSuspendCatching { appState.repo.fetchBilibiliCategories() }.getOrNull()
         val categories = bilibiliCategories ?: continue
         val match = categories.asSequence()
           .flatMap { it.cate2List.asSequence() }
@@ -461,7 +480,7 @@ private suspend fun exportMobilePartitionsAsDesktopCustomCategories(appState: Ap
         val m = Regex("^douyin:([^:]+):(.+)$").matchEntire(p.id) ?: continue
         val partitionType = m.groupValues[1]
         val partition = m.groupValues[2]
-        if (douyinCategories == null) douyinCategories = runCatching { appState.repo.fetchDouyinCategories() }.getOrNull()
+        if (douyinCategories == null) douyinCategories = runSuspendCatching { appState.repo.fetchDouyinCategories() }.getOrNull()
         val categories = douyinCategories ?: continue
         val match = categories.asSequence()
           .flatMap { it.cate2List.asSequence() }
